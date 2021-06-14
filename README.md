@@ -264,3 +264,8 @@ Now the Vim tag-hopping shortcuts will work. For example, with
 the cursor on a tag name, like a header file or a function,
 `Ctrl+]` jumps to the file or to the location where the function
 is defined.
+
+And since IMGUI is C/C++, and Vim omni-complete uses the `tags`
+files for omni-completion of C/C++ file types, `Ctrl+X Ctrl+O` in
+insert mode will pop-up an auto-complete menu and open a preview
+window with the signature of the highlighted function.
