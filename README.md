@@ -19,7 +19,7 @@
         - check the hash matches the SHA256 checksum on the website:
 
             ```
-            2e9bd59980aa0aa9248e5f0ad0ef26b0ac10adae7c6d31509762069bb388e600
+            $(Get-FileHash .\msys2-x86_64-20210604.exe).Hash -match "2e9bd59980aa0aa9248e5f0ad0ef26b0ac10adae7c6d31509762069bb388e600"
             ```
 
     - check the signature:
