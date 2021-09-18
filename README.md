@@ -262,6 +262,61 @@ let &path = &path . ',' . '/home/mike/imgui/**'
 
 The trailing `**` tells Vim to recursive dive during `:find`.
 
+To find standard library headers such as `stdio.h`:
+
+```vim
+let &path = &path . ',' . '/mingw64/x86_64-w64-mingw32/include/'
+```
+
+### Figure out library header paths
+
+My trick to find the library header path is to use the gcc flag
+`-M`. Here is a step-by-step example.
+
+- create a dummy `.c` file:
+
+```c
+// find-headers.c
+#include <stdio.h>
+void main(void){}
+```
+
+- and create this Make recipe to print the library paths
+
+```make
+.PHONY: print-libs
+print-libs: find-headers.c
+	gcc $< -M > libs.txt
+```
+
+Run the `print-libs` recipe:
+
+```bash
+$ make print-libs
+gcc find-headers.c -M > libs.txt
+```
+
+The paths are listed in file `libs.txt`:
+
+```
+$ cat libs.txt 
+find-headers.o: find-headers.c \
+ C:/msys64/mingw64/x86_64-w64-mingw32/include/stdio.h \
+ ...
+```
+
+When adding `mingw64` paths to Vim variable `path`, omit the
+`C:/msys64` prefix:
+
+```vim
+let &path = &path . ',' . '/mingw64/x86_64-w64-mingw32/include/'
+```
+
+Also note the path *must be a folder*. You cannot add a path to a
+file.
+
+## ctags
+
 To setup a ctags file, first open an `msys` shell, then install
 `ctags`:
 
@@ -294,3 +349,46 @@ And since IMGUI is C/C++, and Vim omni-complete uses the `tags`
 files for omni-completion of C/C++ file types, `Ctrl+X Ctrl+O` in
 insert mode will pop-up an auto-complete menu and open a preview
 window with the signature of the highlighted function.
+
+# New IMGUI project
+
+This repository is an example of an IMGUI project. My source,
+build output, and make-related files are all in the same flat
+structure. But I put `imgui` stuff in its own folder.
+
+## make tags
+
+I put two tags recipes in my Makefile.
+
+This is my recipe for tags in my source code:
+
+```make
+.PHONY: tags
+tags: main.cpp
+	ctags --c-kinds=+l --exclude=Makefile -R .
+```
+
+Now I generate the tags file with `make tags`.
+
+I also want tags for definitions in the library dependencies.
+Here is my recipe:
+
+```make
+.PHONY: lib-tags
+lib-tags: main.c
+	gcc $(CFLAGS) $< -M > headers-windows.txt
+	python.exe parse-lib-tags.py
+	rm -f headers-windows.txt
+	ctags -f lib-tags --c-kinds=+p -L headers-posix.txt
+	rm -f headers-posix.txt
+```
+
+This uses the same gcc `-M` flag trick to get the list of library
+paths:
+
+- A Python script does some simple reformatting so that `ctags`
+  understands the list of paths (I have to remove non-trailing
+  whitespace and use newline as the only delimiter).
+- The `-L` flag tells ctags to read from the `.txt` file the list
+  of file names to generate tags for.
+
