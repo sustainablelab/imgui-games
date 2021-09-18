@@ -1,7 +1,7 @@
-- [Install MSYS2](mike-readme.md#install-msys2)
-- [Set up shortcuts to launch shells from PowerShell](mike-readme.md#set-up-shortcuts-to-launch-shells-from-powershell)
-- [Get IMGUI](mike-readme.md#get-imgui)
-- [Vim setup to navigate the IMGUI repo](mike-readme.md#vim-setup-to-navigate-the-imgui-repo)
+- [Install MSYS2](README.md#install-msys2)
+- [Set up shortcuts to launch shells from PowerShell](README.md#set-up-shortcuts-to-launch-shells-from-powershell)
+- [Get IMGUI](README.md#get-imgui)
+- [Vim setup to navigate the IMGUI repo](README.md#vim-setup-to-navigate-the-imgui-repo)
 
 # Install MSYS2
 
