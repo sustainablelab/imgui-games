@@ -182,23 +182,38 @@ Clone IMGUI:
 git clone https://github.com/ocornut/imgui.git
 ```
 
-Start with this example:
+## Install dependencies and build
+
+The dependencies depend on which framework you choose to use.
+IMGUI has examples for many frameworks. I choose
+[GLFW](https://www.glfw.org/) using
+[opengl3](https://www.opengl.org/).
+
+*GLFW also supports Vulcan, but the IMGU build example for
+GLFW-Vulcan looks is more involved than a simple Makefile: it
+looks like it requires MSVC (the Visual Studio compiler).*
+
+Enter the directory of the GLFW-OpenGL example:
 
 ```
 cd imgui/examples/example_glfw_opengl3/
 ```
 
-The Makefile shows how to install the OpenGL dependency on
-Windows in MSYS:
+The Makefile shows how to install the GLFW dependency on Windows
+in MSYS. I copied those lines here:
 
 ```make
 # MSYS2:
 #   pacman -S --noconfirm --needed mingw-w64-x86_64-toolchain mingw-w64-x86_64-glfw
 ```
 
-That's it.
+Open an `MSYS` shell and run the above package manager command to
+install the dependency.
 
-Run `make`:
+*Remember to do MSYS2 package management from the `MSYS` shell,
+and do builds from the `MINGW` shell.*
+
+Open a `MINGW` shell, enter this folder again, and run `make`:
 
 ```
 make
@@ -207,13 +222,72 @@ make
 The example builds and executable `example_glfw_opengl3.exe` is
 created.
 
-Open a Vim terminal (or another `mingw` shell) and run it:
+Open a Vim terminal (or another `MINGW` shell) and run it:
 
 ```
 ./example_glfw_opengl3.exe 
 ```
 
 REMEMBER: build and run from MINGW *not* from MSYS2!!!
+
+## Play with the example
+
+From the `imgui` repository, open:
+
+    imgui/examples/example_glfw_opengl3/main.cpp
+
+Locate the following line of code:
+
+```c
+ImGui::Begin("Hello, world!"); // Create a window called "Hello, world!" and append into it.
+```
+
+Insert whatever you want to try out before that line. For
+example:
+
+```c
+static float test_array_1[] = {1,2,3,4,99,5,6,7,8,9};
+static float test_array_2[] = {8,7,8,9,85,11,14,11,8,29};
+ImGui::Begin("Pile of leaves");
+
+static float * test_array_active = test_array_1;
+
+if (ImGui::BeginCombo(
+        "label combo-box", // const char* label,
+        "preview value", // const char* preview_value,
+        0 // ImGuiComboFlags flags = 0
+        )){
+
+    if (ImGui::Selectable("selectable label data 1"))
+    {
+        test_array_active = test_array_1;
+    }
+    if (ImGui::Selectable("selectable label data 2"))
+    {
+        test_array_active = test_array_2;
+    }
+        ImGui::EndCombo();
+}
+
+ImGui::PlotLines(
+        "plotty", // const char* label,
+        test_array_active, //const float* values,
+        sizeof(test_array_1)/sizeof(float), // int values_count,
+        0, // int values_offset = 0,
+        NULL, // const char* overlay_text = NULL,
+        FLT_MAX, // float scale_min = FLT_MAX,
+        FLT_MAX, // float scale_max = FLT_MAX,
+        ImVec2(100, 100), // ImVec2 graph_size = ImVec2(0, 0),
+        sizeof(float) // int stride = sizeof(float));
+        );
+
+ImGui::End();
+```
+
+How did I know about PlotLines and what it's function signature
+is? I had help from someone who uses IMGUI to get me started
+where to look. In addition, I set up Vim to navigate the IMGUI
+repository.
 
 # Vim setup to navigate the IMGUI repo
 
@@ -229,8 +303,13 @@ repo.
 
 *Vimgrep example:*
 
-Find all occurrences of `-D` in the Makefile. This is a quick way
-to see what macros are defined.
+In this example, I want to **find** all occurrences of `-D` in
+this Makefile from the IMGUI examples:
+
+    imgui/examples/example_glfw_opengl3/Makefile
+
+*-D is a gcc flag that defines macros, so searching for `-D` in
+the Makefile is a quick way to see what macros are defined.*
 
 Open the Makefile in Vim. Then run this Vim command:
 
