@@ -1,5 +1,9 @@
 default-target: bob.exe
 
+.PHONY:
+what-compiler: 
+	echo $(CXX)
+
 OBJ :=  imgui/build/backends/imgui_impl_opengl3.o \
 		imgui/build/backends/imgui_impl_glfw.o \
 		imgui/build/imgui.o \
@@ -20,16 +24,16 @@ CFLAGS += `pkg-config --cflags glfw3`
 LFLAGS := -lglfw3 -lgdi32 -lopengl32 -limm32
 
 imgui/build/%.o: imgui/%.cpp
-	gcc -c $< -o $@ $(CFLAGS)
+	$(CXX) -c $< -o $@ $(CFLAGS)
 
 imgui/build/backends/%.o: imgui/backends/%.cpp
-	gcc -c $< -o $@ $(CFLAGS)
+	$(CXX) -c $< -o $@ $(CFLAGS)
 
 imgui/build/libs/%.o: imgui/libs/gl3w/GL/%.c
-	gcc -c $< -o $@ $(CFLAGS)
+	$(CXX) -c $< -o $@ $(CFLAGS)
 
 bob.exe: main.cpp $(OBJ)
-	gcc -o $@ $< $(CFLAGS) $(LFLAGS)
+	$(CXX) -o $@ $^ $(CFLAGS) $(LFLAGS)
 
 .PHONY: clean
 clean:
@@ -39,7 +43,7 @@ clean:
 
 .PHONY: print-libs
 print-libs: find-headers.c
-	gcc $(CFLAGS) $< -M > libs.txt
+	$(CXX) $(CFLAGS) $< -M > libs.txt
 
 .PHONY: tags
 tags: main.cpp
@@ -47,7 +51,7 @@ tags: main.cpp
 
 .PHONY: lib-tags
 lib-tags: main.cpp
-	gcc $(CFLAGS) $< -M > headers-windows.txt
+	$(CXX) $(CFLAGS) $< -M > headers-windows.txt
 	python.exe parse-lib-tags.py
 	rm -f headers-windows.txt
 	ctags -f lib-tags --c-kinds=+p -L headers-posix.txt
