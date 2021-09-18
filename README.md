@@ -213,15 +213,40 @@ Open a Vim terminal (or another `mingw` shell) and run it:
 ./example_glfw_opengl3.exe 
 ```
 
+REMEMBER: build and run from MINGW *not* from MSYS2!!!
+
 # Vim setup to navigate the IMGUI repo
 
 Without going crazy making a tags file and a cscope database, Vim
 `:find` and `:vimgrep` are good enough to navigate the IMGUI
 repo.
 
-- `:find` handles jumping to header files
 - `:vimgrep` makes it easy to find the line number of the
+- `:find` handles jumping to header files
   function signature
+
+## vimgrep
+
+*Vimgrep example:*
+
+Find all occurrences of `-D` in the Makefile. This is a quick way
+to see what macros are defined.
+
+Open the Makefile in Vim. Then run this Vim command:
+
+```vim
+:vimgrep "\C -D" %
+```
+
+- I enclose the pattern in double-quotes
+    - enclose the pattern in any non-ID character (do `:set
+      isident?` to see the list of ID characters) as long as it
+      does not appear in the pattern
+- The `\C` makes the search case sensitive.
+- The `%` means "the file in the active window"
+    - test this with `:echo expand("%")`
+
+## find
 
 It's worth setting up tags file and cscope database to automate
 all this a little better, but to get started, I think `:find`
