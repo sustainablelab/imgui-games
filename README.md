@@ -507,7 +507,7 @@ git submodule add https://github.com/ocornut/imgui.git
 Now I have folder `imgui` in my project folder. This folder is
 the clone of the IMGUI repository.
 
-Git creates a `.gitmodules` file:
+Git creates a `.gitmodules` file at the top-level:
 
 ```.gitmodules
 [submodule "imgui"]
@@ -516,10 +516,46 @@ Git creates a `.gitmodules` file:
 ```
 
 And Git creates a  `modules` folder in my project's `.git`
-folder.
+folder. My project is the *superproject*. The superproject has a
+`.git` folder and the submodule has a `.git` file.
+
+- The IMGUI submodule has its *Git directory* (the magic files
+  that track changes) in the `./.git/modules` folder.
+    - file `./imgui/.git` lists the path to this *Git directory*:
+
+        ```
+        gitdir: ../.git/modules/imgui
+        ```
+
+- The IMGUI submodule has its *working directory* (the files I am
+  actually using) in `imgui-games/imgui`.
+    - Since `imgui-games` is the *superproject* (this is what the
+      Git Manual calls the top-level project), the path to the
+      working directory is simply `imgui`.
+    - Recall that file `.gitmodules` says `path = imgui`. So
+      `.gitmodules` shows the path to the *working directory*.
 
 Lastly, adding a submodule is a change to my project's
-repository, so I commit this like any other change.
+repository. I commit this like any other change.
+
+But when IMGUI changes and I pull the latest version, my
+superproject still points at the commit I initially cloned.
+
+```
+$ git status
+On branch master
+
+Changes not staged for commit:
+  (use "git add <file>..." to update what will be committed)
+  (use "git restore <file>..." to discard changes in working directory)
+  (commit or discard the untracked or modified content in submodules)
+        modified:   imgui (modified content)
+
+no changes added to commit (use "git add" and/or "git commit -a")
+```
+
+How do I tell the superproject that it's using the submodules'
+latest commit?
 
 ## Build setup
 
