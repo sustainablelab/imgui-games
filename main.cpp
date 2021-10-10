@@ -8,7 +8,6 @@
  *      which means use OpenGL loader gl3w.
  * Therefore, my OpenGL definitions are in gl3w.h.
  *  */
-#include <GL/gl3w.h>            // Initialize with gl3wInit()
 #include <GLFW/glfw3.h>
 
 static void glfw_error_callback(int error, const char* description)
