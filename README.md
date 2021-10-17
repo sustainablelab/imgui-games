@@ -109,7 +109,7 @@ Set-Alias -Name msys -Value RunMsys
 function RunMingw {
     C:\msys64\msys2_shell.cmd -mingw
 }
-Set-Alias -Name msys -Value RunMingw
+Set-Alias -Name mingw -Value RunMingw
 ```
 
 # Install more packages
@@ -232,8 +232,8 @@ IMGUI has examples for many frameworks. I choose
 [opengl3](https://www.opengl.org/).
 
 *GLFW also supports Vulcan, but the IMGU build example for
-GLFW-Vulcan looks is more involved than a simple Makefile: it
-looks like it requires MSVC (the Visual Studio compiler).*
+GLFW-Vulcan is more involved than a simple Makefile: it looks
+like it requires MSVC (the Visual Studio compiler).*
 
 Enter the directory of the GLFW-OpenGL example:
 
