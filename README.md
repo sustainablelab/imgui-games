@@ -138,6 +138,13 @@ Generate assembly code:
 gcc -S test.c
 ```
 
+After the word `gcc`, the order of the rest doesn't matter, so
+this is OK too:
+
+```bash
+gcc test.c -S
+```
+
 This generates the following `test.s`:
 
 ```asm
@@ -164,6 +171,21 @@ main:
 	.seh_endproc
 	.ident	"GCC: (Rev5, Built by MSYS2 project) 10.3.0"
 ```
+
+Alternatively, this outputs to the terminal:
+
+```bash
+gcc test.c -S -o -
+```
+
+The `-o` says output to file, e.g., `-o test.s`. Instead of
+giving a file name, I put `-` which means output to the terminal.
+
+The assembly is meant for conversion by the GNU tool `as.exe`
+into an object file. The instructions, e.g., `movl` and `popq`,
+are machine-independent. The directives, e.g., `seh_proc`
+(a Windows thing that stands for "structured exception
+handling"), are machine-dependent.
 
 To check which packages you explicitly installed:
 
