@@ -2,7 +2,7 @@ default-target: bob.exe
 
 .PHONY:
 what-compiler: 
-	echo $(CXX)
+	@echo $(CXX)
 
 OBJ :=  imgui/build/backends/imgui_impl_opengl3.o \
 		imgui/build/backends/imgui_impl_glfw.o \

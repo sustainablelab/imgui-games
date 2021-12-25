@@ -4,6 +4,8 @@
 - [Get IMGUI](README.md#get-imgui)
 - [Play with the example](README.md#play-with-the-example)
 - [Vim setup to navigate the IMGUI repo](README.md#vim-setup-to-navigate-the-imgui-repo)
+- [Git submodules](README.md#git-submodules)
+- [Use IMGUI in a project](README.md#use-imgui-in-a-project)
 
 # Setup MSYS2 to program on Windows
 
@@ -50,6 +52,22 @@ Clone IMGUI:
 ```
 git clone https://github.com/ocornut/imgui.git
 ```
+
+## What? And why?
+
+Without IMGUI, I can already put pixels and primitive shapes on
+the screen with SDL2, e.g., [in this
+repo](https://github.com/sustainablelab/falling-something) I use
+SDL2 directly to noodle with the concept behind the [Falling
+Everything Engine](https://nollagames.com/fallingeverything/).
+
+IMGUI is a level above SDL2. In fact, IMGUI uses libraries like
+SDL2 as the **platform backend**. SDL2 is one of the backend
+options for IMGUI. See imgui/docs/BACKENDS.md.
+
+IMGUI provides GUI stuff: drop-downs, sliders, etc. Run the
+example (follow the instructions below) to see all the things
+IMGUI can do.
 
 ## Install dependencies and build
 
@@ -168,7 +186,7 @@ Out of the box, Vim has `:find` and `:vimgrep`. I show how to use
 these. Then I show how to make a tags file and a cscope database
 for even more powerful navigation.
 
-## vimgrep and find
+## summary of vimgrep and find
 
 - `:vimgrep` finds occurrences of a search pattern, just like
   regular `grep` in bash, but makes it easy to jump to the
@@ -180,7 +198,12 @@ for even more powerful navigation.
 - `:find` finds files
     - I use `:find` to jump to header files
     - shortcut `gf` to jump to the file
-    - shortcut `;w]`
+    - shortcut `;wf` to open the file in a new window
+
+`:find` only looks on the Vim `path`. I use `gcc -M` in a
+Makefile recipe to figure out the header paths used in this
+project. Then I add those paths to the Vim `path` by editing the
+`.vimrc`.
 
 ## vimgrep
 
@@ -274,8 +297,8 @@ let &path = &path . ',' . '/mingw64/x86_64-w64-mingw32/include/'
 
 Also note:
 
-- the path *must be a folder*
-    - you cannot add a path to a file
+- the path *must be a folder-path*
+    - you cannot add a file-path to Vim path
 - the trailing `/` is optional
 - the leading `/` is **not** optional
     - for Vim `find` to find files, the way to specify a path
@@ -319,95 +342,8 @@ files for omni-completion of C/C++ file types, `Ctrl+X Ctrl+O` in
 insert mode will pop-up an auto-complete menu and open a preview
 window with the signature of the highlighted function.
 
-# New IMGUI project
-
-This Git repository is an example of an IMGUI project. So first
-off, I start a project by creating a Git repository. It's easier
-to do this first because I'm going to add IMGUI as a Git
-submodule.
-
-## Flat file structure
-
-My source, build output, and make-related files are all in the
-same flat structure. They all just live together at the top of my
-project folder.
-
-## Clone IMGUI as a submodule
-
-The IMGUI dependencies are all in the IMGUI repository. The best
-approach is to clone this repository into each project as a Git
-submodule. 
-
-```bash
-cd imgui-games
-git submodule add https://github.com/ocornut/imgui.git
-```
-
-Now I have folder `imgui` in my project folder. This folder is
-the clone of the IMGUI repository.
-
-Git creates a `.gitmodules` file at the top-level:
-
-```.gitmodules
-[submodule "imgui"]
-        path = imgui
-        url = https://github.com/ocornut/imgui.git
-```
-
-And Git creates a  `modules` folder in my project's `.git`
-folder. My project is the *superproject*. The superproject has a
-`.git` folder and the submodule has a `.git` file.
-
-- The IMGUI submodule has its *Git directory* (the magic files
-  that track changes) in the `./.git/modules` folder.
-    - file `./imgui/.git` lists the path to this *Git directory*:
-
-        ```
-        gitdir: ../.git/modules/imgui
-        ```
-
-- The IMGUI submodule has its *working directory* (the files I am
-  actually using) in `imgui-games/imgui`.
-    - Since `imgui-games` is the *superproject* (this is what the
-      Git Manual calls the top-level project), the path to the
-      working directory is simply `imgui`.
-    - Recall that file `.gitmodules` says `path = imgui`. So
-      `.gitmodules` shows the path to the *working directory*.
-
-Lastly, adding a submodule is a change to my project's
-repository. I commit this like any other change.
-
-But when IMGUI changes and I pull the latest version, my
-superproject still points at the commit I initially cloned.
-
-```
-$ git status
-On branch master
-
-Changes not staged for commit:
-  (use "git add <file>..." to update what will be committed)
-  (use "git restore <file>..." to discard changes in working directory)
-  (commit or discard the untracked or modified content in submodules)
-        modified:   imgui (modified content)
-
-no changes added to commit (use "git add" and/or "git commit -a")
-```
-
-How do I tell the superproject that it's using the submodules'
-latest commit?
-
-## Build setup
-
-`IMGUI` is intended to be built from source. That means I
-generate IMGUI object files when I build my project.
-
-Should those object files go in the `imgui` submodule? No.
-
-Following how the IMGUI examples do it, let the object files that
-get generated by my build go in my project's build folder. Since
-I don't bother making a separate build folder, that means all the
-object files dump directly into the same folder with my source
-code and my final .exe.
+Like anything else, it's nice to automate tag generation/updating
+with the Makefile.
 
 ## make tags
 
@@ -421,7 +357,7 @@ tags: main.cpp
 	ctags --c-kinds=+l --exclude=Makefile -R .
 ```
 
-Now I generate the tags file with `make tags`.
+Now I generate/update the tags file with `make tags`.
 
 I also want tags for definitions in the library dependencies.
 Here is my recipe:
@@ -436,12 +372,286 @@ lib-tags: main.c
 	rm -f headers-posix.txt
 ```
 
-This uses the same gcc `-M` flag trick to get the list of library
-paths:
+Now I generate/update the lib-tags file with `make lib-tags`.
+Note this is a separate tags file. I tell Vim to search both
+files by setting `tags` in my `.vimrc` like this:
+
+```vim
+set tags=./tags,tags,lib-tags
+```
+
+The `lib-tags` recipe uses the `gcc -M` trick to get the list of
+library paths:
 
 - A Python script does some simple reformatting so that `ctags`
   understands the list of paths (I have to remove non-trailing
   whitespace and use newline as the only delimiter).
 - The `-L` flag tells ctags to read from the `.txt` file the list
   of file names to generate tags for.
+
+The Python script that formats the header paths is very short:
+
+```python
+import pathlib
+with open("headers-windows.txt") as fin:
+    with open("headers-posix.txt", mode="w") as fout:
+        for line in fin:
+            for s in line.split():
+                if '.h' in s:
+                    fout.write(str(pathlib.PurePosixPath(s)))
+                    fout.write("\n")
+```
+
+# Git submodules
+
+I don't use Git submodules often, so the entire next section is
+about Git submodules. This is not specific to IMGUI, but that's
+what I use in all the examples.
+
+## Add IMGUI as a submodule
+
+The IMGUI dependencies are all in the IMGUI repository. Clone
+this repository into each project as a Git submodule. For
+example:
+
+```bash
+$ cd imgui-games
+$ git submodule add https://github.com/ocornut/imgui.git
+Cloning into '/home/mike/gitrepos/imgui-games/imgui'...
+remote: Enumerating objects: 42602, done.
+remote: Counting objects: 100% (899/899), done.
+remote: Compressing objects: 100% (324/324), done.
+remote: Total 42602 (delta 690), reused 744 (delta 573), pack-reused 41703
+Receiving objects: 100% (42602/42602), 75.32 MiB | 13.69 MiB/s, done.
+Resolving deltas: 100% (32232/32232), done.
+```
+
+Now I have folder `imgui` in my project folder. This folder is
+the clone of the IMGUI repository.
+
+**This is a change to the repository. Remember to commit it!**
+
+I commit adding a submodule like I would for any other change:
+
+```bash-git
+git add .
+git commit -m 'Add IMGUI as Git submodule'
+```
+
+Or if I have other changes and just want to stage the addition of
+the submodule in this commit, I need to stage two items:
+
+- the `.gitmodules` file
+- the `imgui` folder
+
+So I do this:
+
+```bash-git
+git add .gitmodules imgui
+git commit -m 'Add IMGUI as Git submodule'
+```
+
+TODO: How do I tell the superproject to use the submodule's
+latest commit?
+
+When IMGUI changes and I pull the latest version, my
+superproject still points at the commit I initially cloned.
+
+```bash-git
+$ git status
+On branch master
+
+Changes not staged for commit:
+  (use "git add <file>..." to update what will be committed)
+  (use "git restore <file>..." to discard changes in working directory)
+  (commit or discard the untracked or modified content in submodules)
+        modified:   imgui (modified content)
+
+no changes added to commit (use "git add" and/or "git commit -a")
+```
+
+So does `git submodule update` do this?
+
+If not, then I think the way to do this is:
+
+```bash-git
+git submodule update --remote --merge
+```
+
+### What adding as a submodule means in practice
+
+#### .gitmodules file
+
+Git creates a `.gitmodules` file at the top-level:
+
+```.gitmodules
+[submodule "imgui"]
+        path = imgui
+        url = https://github.com/ocornut/imgui.git
+```
+
+#### modules folder
+
+And Git creates a  `modules` folder in my project's `.git`
+folder. My project is the *superproject*. The superproject has a
+`.git` folder and the submodule has a `.git` file.
+
+- The IMGUI submodule has its *Git directory* (the magic files
+  that track changes) in the `./.git/modules` folder.
+    - file `./imgui/.git` lists the path to this *Git directory*:
+
+        ```
+        gitdir: ../.git/modules/imgui
+        ```
+
+#### working directory
+
+- The IMGUI submodule has its *working directory* (the files I am
+  actually using) in `imgui-games/imgui`.
+    - Since `imgui-games` is the *superproject* (this is what the
+      Git Manual calls the top-level project), the path to the
+      working directory is simply `imgui`
+    - Recall that file `.gitmodules` says `path = imgui`. So
+      `.gitmodules` shows the path to the *working directory*.
+
+The useful takeaway about the working directory is for recipes in
+the Makefile. The recipes have to be able to find IMGUI. Paths to
+IMGUI dependencies start with `imgui/`.
+
+This assumes my Makefile is at the project top-level, which it
+should be because I want someone to simply clone my project and
+be able to run `make` from the top-level folder.
+
+### Temporarily stop using a submodule
+
+```bash
+git submodule deinit imgui
+```
+
+The `deinit` removes the files from the working tree (deletes
+them from disk) and tells Git to stop looking at this submodule
+when doing submodule updates.
+
+It's as if it's gone, but it's not really gone because you can
+just `git submodule init` to bring it back.
+
+The `deinit` does not remove working tree files that contain
+local modifications. To force the removal (throw away local
+changes) use `--force` or `-f`.
+
+### Really delete a submodule
+
+Use `git rm`:
+
+```
+$ git rm imgui
+$ git commit -m 'Remove submodule imgui'
+```
+
+If there are uncommitted changes, add these flags:
+
+```
+$ git rm -f --cached imgui
+$ git commit -m 'Remove submodule imgui'
+```
+
+You still need to manually delete the `imgui` folder to
+completely remove any trace of the submodule.
+
+```bash
+rm -rf imgui
+```
+
+This is because Git keeps the folder around to store the
+submodule's `.git` file to make it possible to checkout past
+commits without fetching from the submodule's remote.
+
+
+## Cloning a project that has submodules
+
+Before getting into making a project, there is one more point
+about Git submodules. What happens when someone wants to use my
+project (or I want to run it another machine)?
+
+First they clone it like usual:
+
+```bash-git
+git clone https://github.com/sustainablelab/imgui-games.git
+```
+
+But the IMGUI submodule (and any other submodules) show up
+empty, so the project cannot build.
+
+Clone the submodules like this:
+
+```bash-git
+git submodule update --init
+```
+
+This one-liner works for all my submodules, not just IMGUI.
+
+The one-liner is equivalent to these two steps:
+
+```bash-git
+git submodule init
+git submodule update
+```
+
+The `init` "registers" the submodules by editing my `.git/config`
+while the `update` clones the registered submodules. *I do this in
+two steps when I want to customize the clone URLs in
+`.git/config` in my local setup. I do that customization after
+the `init`, but before the `update`.*
+
+
+# Use IMGUI in a project
+
+At this point:
+
+- I have a working MSYS2 environment that builds native Windows
+  executables.
+- I have a Vim environment that makes it easy to navigate project
+  code and use auto-completion.
+- I know the basics of using IMGUI just from playing with the
+  examples it comes with, or at least I've successfully built an
+  example and played with it.
+- I also know how to work with Git submodules.
+
+*Now I am ready to create a new project that uses IMGUI.*
+
+This Git repository is an example of a project that uses IMGUI.
+
+- start a project by creating a Git repository
+- add IMGUI as a Git submodule
+
+Each project has its own IMGUI git submodule. So lots of copies
+of IMGUI on your computer? Yes, that's OK.
+
+Really, **this is the right way to do this.**
+
+- The IMGUI submodule does not take up space at the Git remote.
+- The IMGUI submodule does not need to take up space on the local
+  clone either -- you only need it if you are building, so if
+  space is really an issue you can just `deinit` the submodule
+- on the GitHub website, clicking on the folder jumps to the
+  repository on the `ocornut` page (the IMGUI author)
+
+## Use a flat file structure
+
+My source, build output, and make-related files are all in the
+same flat structure. They all just live together at the top of my
+project folder.
+
+## Build setup
+
+`IMGUI` is intended to be built from source. That means I
+generate IMGUI object files when I build my project.
+
+Should those object files go in the `imgui` submodule? No.
+
+Following how the IMGUI examples do it, let the object files that
+get generated by my build go in my project's build folder. Since
+I don't bother making a separate build folder, that means all the
+object files dump directly into the same folder with my source
+code and my final .exe.
 
