@@ -567,6 +567,94 @@ submodule's `.git` file to make it possible to checkout past
 commits without fetching from the submodule's remote.
 
 
+### Submodule not modified but shows as untracked content
+
+Here's something annoying that happens. Using Vim creates swap
+files and undo files. As I poke around files in the submodule, I
+inadvertently create these hidden files. Git sees this as
+modifications to the working tree in the submodule and tells me I
+have untracked content:
+
+```bash-git
+$ git status
+On branch master
+Your branch is up to date with 'origin/master'.
+
+Changes not staged for commit:
+  (use "git add/rm <file>..." to update what will be committed)
+  (use "git restore <file>..." to discard changes in working directory)
+  (commit or discard the untracked or modified content in submodules)
+        modified:   imgui (untracked content)
+```
+
+To see the problem explicitly, run `git status` from the `imgui`
+folder:
+
+```bash-git
+$ cd imgui
+$ git status
+On branch master
+Your branch is up to date with 'origin/master'.
+
+Untracked files:
+  (use "git add <file>..." to include in what will be committed)
+        examples/example_glfw_opengl3/.Makefile.un~
+
+nothing added to commit but untracked files present (use "git add" to track)
+```
+
+Usually I ignore this Vim undo file with my `.gitignore`, but the
+`.gitignore` only affects my git module, not the git submodules.
+
+I cannot edit the `.gitignore` in the `imgui` submodule -- Git
+will ignore the undo file, but then it will show that I've
+modified the submodule because I changed the `.gitignore`.
+
+Why didn't `ocornut` ignore Vim files for me? It's considered bad
+practice to put non-project-specific ignore files in the
+`.gitignore`.
+
+The "good practice" is to create a global `.gitignore` file
+somewhere, usually in the HOME directory:
+
+```
+vim ~/.gitignore
+```
+
+And list the generic items-to-ignore in that global `.gitignore`
+file:
+
+```.gitignore
+*~
+*.sw?
+```
+
+Then tell Git to use the global `.gitignore`:
+
+```bash-git
+git config --global core.excludesfile ~/.gitignore
+```
+
+List the global config to see Git is using the global
+`.gitignore` file:
+
+```bash-git
+$ git config --global -l
+core.autocrlf=input
+core.editor=vim
+core.excludesfile=/home/mike/.gitignore
+user.name=sustainablelab
+user.email=sustainablelab@gmail.com
+```
+
+And now Git does not see any modifications to the submodule:
+
+```bash-git
+$ git status
+On branch master
+Your branch is up to date with 'origin/master'.
+```
+
 ## Cloning a project that has submodules
 
 Before getting into making a project, there is one more point
