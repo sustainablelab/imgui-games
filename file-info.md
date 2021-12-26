@@ -1,5 +1,10 @@
 # Folders
 
+## imgui
+
+This is the IMGUI repository as a Git submodule. Manage it with
+the `git submodule` commands.
+
 ## imgui-old
 
 `imgui-old/` was my first attempt at using IMGUI:
@@ -23,7 +28,3 @@ I quickly realized this is the WRONG way.
 The right way is to just clone the IMGUI repo into the project.
 The repo is updated often. Copying the files out again is a lot
 of work.
-
-## submodules
-
-Put my Git submodules here.

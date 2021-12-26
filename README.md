@@ -743,3 +743,182 @@ I don't bother making a separate build folder, that means all the
 object files dump directly into the same folder with my source
 code and my final .exe.
 
+## Makefile
+
+The Makefile is only these 19 lines once all the parts for other
+OS are removed. It divides into three parts.
+
+The first part defines the names of the object files based on the
+source code name `main.cpp` and the executable name `bob.exe`.
+
+```make
+EXE = bob.exe
+default-target: $(EXE)
+IMGUI_DIR = imgui
+SOURCES = main.cpp
+SOURCES += $(IMGUI_DIR)/imgui.cpp $(IMGUI_DIR)/imgui_demo.cpp $(IMGUI_DIR)/imgui_draw.cpp $(IMGUI_DIR)/imgui_tables.cpp $(IMGUI_DIR)/imgui_widgets.cpp
+SOURCES += $(IMGUI_DIR)/backends/imgui_impl_glfw.cpp $(IMGUI_DIR)/backends/imgui_impl_opengl3.cpp
+OBJS = $(addsuffix .o, $(basename $(notdir $(SOURCES))))
+```
+
+Next, the compiler flags and library dependencies are defined.
+
+```make
+CXXFLAGS = -I$(IMGUI_DIR) -I$(IMGUI_DIR)/backends
+CXXFLAGS += -g -Wall -Wformat
+CXXFLAGS += `pkg-config --cflags glfw3`
+LIBS = -lglfw3 -lgdi32 -lopengl32 -limm32
+```
+
+Finally, the actual make recipes use pattern matching (the
+`%.o:%.cpp`) and automatic variables (the `$@` and `$<`) to
+result in terse recipes.
+
+```make
+%.o:%.cpp
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+%.o:$(IMGUI_DIR)/%.cpp
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+%.o:$(IMGUI_DIR)/backends/%.cpp
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+$(EXE): $(OBJS)
+	$(CXX) -o $@ $^ $(CXXFLAGS) $(LIBS)
+```
+
+To see what value a variable takes on, create a recipe like this:
+
+```make
+.PHONY: list-objs
+list-objs:
+	@echo $(OBJS)
+```
+
+Then running `make list-objs` prints out the list of object
+files.
+
+To see what the recipes do, run `make -n`:
+
+```bash-make
+$ make -n
+g++ -Iimgui -Iimgui/backends -g -Wall -Wformat `pkg-config --cflags glfw3` -c -o main.o main.cpp
+g++ -Iimgui -Iimgui/backends -g -Wall -Wformat `pkg-config --cflags glfw3` -c -o imgui.o imgui/imgui.cpp
+g++ -Iimgui -Iimgui/backends -g -Wall -Wformat `pkg-config --cflags glfw3` -c -o imgui_demo.o imgui/imgui_demo.cpp
+g++ -Iimgui -Iimgui/backends -g -Wall -Wformat `pkg-config --cflags glfw3` -c -o imgui_draw.o imgui/imgui_draw.cpp
+g++ -Iimgui -Iimgui/backends -g -Wall -Wformat `pkg-config --cflags glfw3` -c -o imgui_tables.o imgui/imgui_tables.cpp
+g++ -Iimgui -Iimgui/backends -g -Wall -Wformat `pkg-config --cflags glfw3` -c -o imgui_widgets.o imgui/imgui_widgets.cpp
+g++ -Iimgui -Iimgui/backends -g -Wall -Wformat `pkg-config --cflags glfw3` -c -o imgui_impl_glfw.o imgui/backends/imgui_impl_glfw.cpp
+g++ -Iimgui -Iimgui/backends -g -Wall -Wformat `pkg-config --cflags glfw3` -c -o imgui_impl_opengl3.o imgui/backends/imgui_impl_opengl3.cpp
+g++ -o bob.exe main.o imgui.o imgui_demo.o imgui_draw.o imgui_tables.o imgui_widgets.o imgui_impl_glfw.o imgui_impl_opengl3.o -Iimgui -Iimgui/backends -g -Wall -Wformat `pkg-config --cflags glfw3` -lglfw3 -lgdi32 -lopengl32 -limm32
+```
+
+9 recipes run in total. The first 8 recipes are generating the
+object files from the `.cpp` source code. The final recipe links
+the object files to generate the executable. Pretty standard
+stuff.
+
+# Write main.cpp
+
+Finally here. What's the boilerplate `main.cpp` file to get started?
+
+Start with the necessary headers. These are the IMGUI headers
+found in the Git submodule:
+
+```c
+#include "imgui.h"
+#include "imgui_impl_glfw.h"
+#include "imgui_impl_opengl3.h"
+```
+
+And these are headers provided by MSYS2 packages:
+
+```c
+#include <stdio.h>
+#include <GLFW/glfw3.h> // Will drag system OpenGL headers
+```
+
+With the backend I'm using, the Makefile does not define the
+macro `IMGUI_IMPL_OPENGL_ES2`, so I drop `#if defined` and do not
+`#include <GLES2/gl2.h>`.
+
+The code is all calls to either the IMGUI library or to GLFW.
+IMGUI stuff starts with `ImGui` or `IMGUI` and GLFW starts with
+`glfw`.
+
+Functions starting with `glfw` are defined by GLFW. The
+prototypes for these functions are in the `GLFW/glfw3.h` header.
+On my MSYS2 installation, this is in
+`C:/msys64/mingw64/include/GLFW/glfw3.h`.
+
+For example, the `main` loop terminates when the window's **close
+flag** is set:
+
+```c
+    // Main loop
+    while (!glfwWindowShouldClose(window))
+    {
+        glfwPollEvents();
+        ...
+    }
+```
+
+Here is the Doxygen in `glfw3.h` for `glfwWindowShouldClose()`:
+
+```c
+/*! @brief Checks the close flag of the specified window.
+ *
+ *  This function returns the value of the close flag of the specified window.
+ *
+ *  @param[in] window The window to query.
+ *  @return The value of the close flag.
+ *
+ *  @errors Possible errors include @ref GLFW_NOT_INITIALIZED.
+ *
+ *  @thread_safety This function may be called from any thread.  Access is not
+ *  synchronized.
+ *
+ *  @sa @ref window_close
+ *
+ *  @since Added in version 3.0.
+ *
+ *  @ingroup window
+ */
+GLFWAPI int glfwWindowShouldClose(GLFWwindow* window);
+```
+
+The application divides into three parts: setup, loop, cleanup.
+
+Setup is creating the Window where the application lives. This
+window can be fullscreen or windowed.
+
+Then an infinite loop begins which continues until it sees the
+window has been flagged for closing.
+
+Finally, there is cleanup to destroy the window, free memory, and
+exit.
+
+# Build
+
+I build and run from Vim.
+
+Build the executable:
+
+```vim
+:make
+```
+
+Run the executable
+
+```vim
+:!./bob.exe
+```
+
+Build tags and lib-tags:
+
+```vim
+:make tags
+:make lib-tags
+```
+
+The advantage of invoking `make` from the Vim command line is
+that `:copen` opens the quickfix window where it is easy to jump
+to the line of code that caused an error or warning.
