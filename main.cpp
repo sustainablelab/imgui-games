@@ -12,17 +12,61 @@
 
 // C++ Standard Library
 #include <cmath>
+#include <cstring>
 
 static void glfw_error_callback(int error, const char* description)
 {
     fprintf(stderr, "Glfw Error %d: %s\n", error, description);
 }
 
-struct Point
+
+struct Vec2
 {
     float x;
     float y;
 };
+
+
+struct Line
+{
+    Vec2 tail;
+    Vec2 head;
+};
+
+
+
+// for each point
+//    for each line
+//       if intersects(point, line)
+//          DEFLECT(point.velocity, line.normal)
+//
+
+
+
+void vec2_scale_add(Vec2* lhs, Vec2* rhs, float scale)
+{
+    lhs->x += rhs->x * scale;
+    lhs->y += rhs->y * scale;
+}
+
+void vec2_set_zero(Vec2* data, int n)
+{
+    std::memset(data, 0, sizeof(Vec2) * n);
+}
+
+void integrate(Vec2* positions, Vec2* velocities, Vec2* forces, int n, float dt)
+{
+    #define INV_MASS 1.f
+    for (int i = 0; i < n; ++i)
+    {
+        // f = m * a
+        // a = f / m = f * inv_mass
+        // v += a * dt
+        vec2_scale_add(velocities + i, forces + i, INV_MASS * dt);
+        // x += v * dt
+        vec2_scale_add(positions + i, velocities + i, dt);
+    }
+}
 
 int main(int, char**)
 {
@@ -66,6 +110,7 @@ int main(int, char**)
 #if defined(BOB)
     glewInit();
 #endif
+
     // Setup Dear ImGui context
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
@@ -83,11 +128,33 @@ int main(int, char**)
     // Our state
     bool show_demo_window = true;
 
+    static const int N_LINES = 1;
+    static const Line environment[N_LINES] = {
+        Line{
+            Vec2{-1.f, -1.f},
+            Vec2{+1.f, -1.f}
+        }
+    };
+
     // Setup batch line buffers
     static const int N_POINTS = 2;
-    Point g_vertex_buffer_data[N_POINTS] = {
-        {0.0f,  0.0f},
-        {0.0f,  1.0f}
+
+    // Number of points to draw this frame
+    const int N_POINTS_DRAWN = 2;
+
+    Vec2 positions[N_POINTS] = {
+        Vec2{0.0f,  0.0f},
+        Vec2{0.0f,  0.2f}
+    };
+
+    Vec2 velocities[N_POINTS] = {
+        Vec2{0.0f, 0.0f},
+        Vec2{0.0f, 0.0f}
+    };
+
+    Vec2 forces[N_POINTS] = {
+        Vec2{0.0f, 0.0f},
+        Vec2{0.0f, 0.0f}
     };
 
     GLuint vertexbuffer_id;
@@ -102,16 +169,17 @@ int main(int, char**)
         (void*)0            // array buffer offset
     );
 
-    float t = 0.0f;
-    float w = 1.0f;
+    velocities[1].y = 0.2f;
 
     // Main loop
     while (!glfwWindowShouldClose(window))
     {
-        t += w * ImGui::GetIO().DeltaTime;
+        vec2_set_zero(forces, N_POINTS_DRAWN);
 
-        g_vertex_buffer_data[1].x = std::cos(t);
-        g_vertex_buffer_data[1].y = std::sin(t);
+        const float dt = ImGui::GetIO().DeltaTime;
+
+        forces[1].x = 0; 
+        forces[1].y = -0.1;
 
         glfwPollEvents();
 
@@ -123,10 +191,10 @@ int main(int, char**)
         if (show_demo_window)
             ImGui::ShowDemoWindow(&show_demo_window);
 
+        integrate(positions, velocities, forces, N_POINTS_DRAWN, dt);
+
         // Create a window called "Hello, world!" and append into it.
         ImGui::Begin("Hello, world!");
-
-        ImGui::SliderFloat("frequency", &w, 1.f, 100.f);
 
         ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
         ImGui::End();
@@ -138,13 +206,10 @@ int main(int, char**)
         glViewport(0, 0, display_w, display_h);
         glClear(GL_COLOR_BUFFER_BIT);
 
-        // Number of points to draw this frame
-        const int N_POINTS_DRAWN = 2;
-
         // Draw lines to screen
         glEnableVertexAttribArray(0);
         glBindBuffer(GL_ARRAY_BUFFER, vertexbuffer_id);
-        glBufferData(GL_ARRAY_BUFFER, N_POINTS_DRAWN * sizeof(Point), g_vertex_buffer_data, GL_DYNAMIC_DRAW);
+        glBufferData(GL_ARRAY_BUFFER, N_POINTS_DRAWN * sizeof(Vec2), positions, GL_DYNAMIC_DRAW);
         glDrawArrays(GL_LINES, 0, N_POINTS_DRAWN);
         glDisableVertexAttribArray(0);
 
