@@ -551,13 +551,16 @@ int main(int, char**)
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
 
-        const int left_button_pressed = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT);
-        const int right_button_pressed = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_RIGHT);
-        if (left_button_pressed == GLFW_PRESS || right_button_pressed == GLFW_PRESS)
+        // Spawn particle on click of mouse
         {
-            Vec2 p;
-            get_cursor_position_normalized(&p, window, display_w, display_h);
-            particle_state_spawn_at(&ps, p);
+            const int left_button_pressed = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT);
+            const int right_button_pressed = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_RIGHT);
+            if (left_button_pressed == GLFW_PRESS || right_button_pressed == GLFW_PRESS)
+            {
+                Vec2 p;
+                get_cursor_position_normalized(&p, window, display_w, display_h);
+                particle_state_spawn_at(&ps, p);
+            }
         }
 
         // Do particle update
