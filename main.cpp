@@ -18,6 +18,12 @@ static void glfw_error_callback(int error, const char* description)
     fprintf(stderr, "Glfw Error %d: %s\n", error, description);
 }
 
+struct Point
+{
+    float x;
+    float y;
+};
+
 int main(int, char**)
 {
     // Setup window
@@ -78,9 +84,10 @@ int main(int, char**)
     bool show_demo_window = true;
 
     // Setup batch line buffers
-    GLfloat g_vertex_buffer_data[4] = {
-        0.0f,  1.0f,
-        0.0f,  0.0f
+    static const int N_POINTS = 2;
+    Point g_vertex_buffer_data[N_POINTS] = {
+        {0.0f,  0.0f},
+        {0.0f,  1.0f}
     };
 
     GLuint vertexbuffer_id;
@@ -103,8 +110,8 @@ int main(int, char**)
     {
         t += w * ImGui::GetIO().DeltaTime;
 
-        g_vertex_buffer_data[0] = std::cos(t);
-        g_vertex_buffer_data[1] = std::sin(t);
+        g_vertex_buffer_data[1].x = std::cos(t);
+        g_vertex_buffer_data[1].y = std::sin(t);
 
         glfwPollEvents();
 
@@ -131,11 +138,14 @@ int main(int, char**)
         glViewport(0, 0, display_w, display_h);
         glClear(GL_COLOR_BUFFER_BIT);
 
+        // Number of points to draw this frame
+        const int N_POINTS_DRAWN = 2;
+
         // Draw lines to screen
         glEnableVertexAttribArray(0);
         glBindBuffer(GL_ARRAY_BUFFER, vertexbuffer_id);
-        glBufferData(GL_ARRAY_BUFFER, 4 * sizeof(float), g_vertex_buffer_data, GL_DYNAMIC_DRAW);
-        glDrawArrays(GL_LINES, 0, 2); // 2 indices for the 2 end points of 1 line
+        glBufferData(GL_ARRAY_BUFFER, N_POINTS_DRAWN * sizeof(Point), g_vertex_buffer_data, GL_DYNAMIC_DRAW);
+        glDrawArrays(GL_LINES, 0, N_POINTS_DRAWN);
         glDisableVertexAttribArray(0);
 
         // Draw imgui stuff to screen
