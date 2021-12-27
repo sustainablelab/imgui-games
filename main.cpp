@@ -10,6 +10,9 @@
 #endif
 #include <GLFW/glfw3.h> // Will drag system OpenGL headers
 
+// C++ Standard Library
+#include <cmath>
+
 static void glfw_error_callback(int error, const char* description)
 {
     fprintf(stderr, "Glfw Error %d: %s\n", error, description);
@@ -26,8 +29,6 @@ int main(int, char**)
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 0);
 
-
-
     // Create window with graphics context
     bool full_screen = false;
     GLFWwindow* window;
@@ -36,7 +37,7 @@ int main(int, char**)
         // Create a full screen window by specifing the monitor
         GLFWmonitor* monitor = glfwGetPrimaryMonitor();
         window = glfwCreateWindow(
-                1280, 720,                          // width, height
+                720, 720,                          // width, height
                 "Dear ImGui GLFW+OpenGL3 example",  // title
                 monitor,                            // monitor
                 NULL                                // share
@@ -45,7 +46,7 @@ int main(int, char**)
     else
     {
         window = glfwCreateWindow(
-                1280, 720,                          // width, height
+                720, 720,                          // width, height
                 "Dear ImGui GLFW+OpenGL3 example",  // title
                 NULL,                               // monitor
                 NULL                                // share
@@ -76,16 +77,15 @@ int main(int, char**)
     // Our state
     bool show_demo_window = true;
 
-
     // Setup batch line buffers
-    static const GLfloat g_vertex_buffer_data[] = {
-        0.0f,  1.0f, 0.0f,
-        0.0f,  0.0f, 0.0f
+    GLfloat g_vertex_buffer_data[4] = {
+        0.0f,  1.0f,
+        0.0f,  0.0f
     };
 
-    GLuint vertexbuffer;
-    glGenBuffers(1, &vertexbuffer);
-    glBindBuffer(GL_ARRAY_BUFFER, vertexbuffer);
+    GLuint vertexbuffer_id;
+    glGenBuffers(1, &vertexbuffer_id);
+    glBindBuffer(GL_ARRAY_BUFFER, vertexbuffer_id);
     glVertexAttribPointer(
         0,                  // attribute 0. No particular reason for 0, but must match the layout in the shader.
         2,                  // size
@@ -94,12 +94,18 @@ int main(int, char**)
         0,                  // stride
         (void*)0            // array buffer offset
     );
-    glBufferData(GL_ARRAY_BUFFER, sizeof(g_vertex_buffer_data), g_vertex_buffer_data, GL_STATIC_DRAW);
 
+    float t = 0.0f;
+    float w = 1.0f;
 
     // Main loop
     while (!glfwWindowShouldClose(window))
     {
+        t += w * ImGui::GetIO().DeltaTime;
+
+        g_vertex_buffer_data[0] = std::cos(t);
+        g_vertex_buffer_data[1] = std::sin(t);
+
         glfwPollEvents();
 
         // Start the Dear ImGui frame
@@ -113,6 +119,8 @@ int main(int, char**)
         // Create a window called "Hello, world!" and append into it.
         ImGui::Begin("Hello, world!");
 
+        ImGui::SliderFloat("frequency", &w, 1.f, 100.f);
+
         ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
         ImGui::End();
 
@@ -125,7 +133,8 @@ int main(int, char**)
 
         // Draw lines to screen
         glEnableVertexAttribArray(0);
-        glBindBuffer(GL_ARRAY_BUFFER, vertexbuffer);
+        glBindBuffer(GL_ARRAY_BUFFER, vertexbuffer_id);
+        glBufferData(GL_ARRAY_BUFFER, 4 * sizeof(float), g_vertex_buffer_data, GL_DYNAMIC_DRAW);
         glDrawArrays(GL_LINES, 0, 2); // 2 indices for the 2 end points of 1 line
         glDisableVertexAttribArray(0);
 
@@ -144,7 +153,7 @@ int main(int, char**)
     glfwTerminate();
 
     // Cleanup VBO
-    glDeleteBuffers(1, &vertexbuffer);
+    glDeleteBuffers(1, &vertexbuffer_id);
 
     return 0;
 }
