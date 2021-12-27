@@ -656,7 +656,6 @@ int main(int, char**)
 
     static const int N_PLANETS_MAX = 10;
     static const int N_POINTS_MAX = 200000;
-    static const int N_POINTS_MAX_SPAWN = 1000;
 
     // Initialize particles
     ParticleState ps;
@@ -673,12 +672,6 @@ int main(int, char**)
     render_pipeline_initialize(&render_pipeline_data);
 
     float point_size = 3.f;
-    int n_to_spawn = 1;
-
-    // Create one planet, offset from the center of the screen
-    // TODO: make planet position the mouse x,y
-    Vec2 planet{0.0f, 0.5f}; // position
-    /* Vec2 planet_pull; // force */
 
     // Main loop
     while (!glfwWindowShouldClose(window))
@@ -722,11 +715,6 @@ int main(int, char**)
         if (ImGui::SliderFloat("point size", &point_size, 1.f, 20.f))
         {
             glPointSize(point_size);
-        }
-        ImGui::SliderInt("n spawns", &n_to_spawn, 1, N_POINTS_MAX_SPAWN);
-        if (ImGui::SmallButton("Spawn"))
-        {
-            particle_state_spawn_random(&ps, n_to_spawn, -BOUNDARY_LIMIT, -BOUNDARY_LIMIT + 0.1f);
         }
         ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
         ImGui::End();
