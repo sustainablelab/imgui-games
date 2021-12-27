@@ -276,7 +276,7 @@ void render_pipeline_draw_lines(RenderPipelineData* const r_data, const Line* co
 //     cursor_position->y = 1.f - 2.f * ((float)ypos / (float)display_h);
 // }
 
-static const int N_ENVIRONMENT_LINES = 4;
+static const int N_ENVIRONMENT_LINES_MAX = 10;
 
 struct Environment
 {
@@ -467,38 +467,47 @@ int main(int, char**)
     ImGui_ImplOpenGL3_Init(glsl_version);
 
     Environment env;
-    environment_initialize(&env, N_ENVIRONMENT_LINES);
-    // bottom
+    environment_initialize(&env, N_ENVIRONMENT_LINES_MAX);
+    // bottom wall
     environment_add_boundary(
         &env,
         Vec2{-BOUNDARY_LIMIT, -BOUNDARY_LIMIT},
         Vec2{+BOUNDARY_LIMIT, -BOUNDARY_LIMIT}
     );
-    // right
+    // right wall
     environment_add_boundary(
         &env,
         Vec2{+BOUNDARY_LIMIT, -BOUNDARY_LIMIT},
         Vec2{+BOUNDARY_LIMIT, +BOUNDARY_LIMIT}
     );
-    // top
+    // top wall
     environment_add_boundary(
         &env,
         Vec2{-BOUNDARY_LIMIT, +BOUNDARY_LIMIT},
         Vec2{+BOUNDARY_LIMIT, +BOUNDARY_LIMIT}
     );
-    // left
+    // left wall
     environment_add_boundary(
         &env,
         Vec2{-BOUNDARY_LIMIT, -BOUNDARY_LIMIT},
         Vec2{-BOUNDARY_LIMIT, +BOUNDARY_LIMIT}
     );
 
+    // add some hard-coded level stuff
+    environment_add_boundary(
+        &env,
+        Vec2{-0.5f * BOUNDARY_LIMIT, +0.5 * BOUNDARY_LIMIT},
+        Vec2{+1.0f * BOUNDARY_LIMIT, +0.5 * BOUNDARY_LIMIT}
+    );
+    environment_add_boundary(
+        &env,
+        Vec2{-1.0f * BOUNDARY_LIMIT, -0.5 * BOUNDARY_LIMIT},
+        Vec2{+0.5f * BOUNDARY_LIMIT, -0.5 * BOUNDARY_LIMIT}
+    );
+
     // Setup batch line buffers
     static const int N_POINTS_MAX = 200000;
     static const int N_POINTS_MAX_SPAWN = 1000;
-
-    // Number of points to update / draw per frame
-    int n_active_points = 0;
 
     // Initialize particles
     ParticleState ps;
