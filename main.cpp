@@ -2,6 +2,7 @@
 #include "imgui_impl_glfw.h"
 #include "imgui_impl_opengl3.h"
 #include <stdio.h>
+#include <GLES3/gl3.h>
 #include <GLFW/glfw3.h> // Will drag system OpenGL headers
 
 static void glfw_error_callback(int error, const char* description)
@@ -19,6 +20,8 @@ int main(int, char**)
     const char* glsl_version = "#version 130";
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 0);
+
+
 
     // Create window with graphics context
     bool full_screen = false;
@@ -65,6 +68,27 @@ int main(int, char**)
     // Our state
     bool show_demo_window = true;
 
+
+    // Setup batch line buffers
+    static const GLfloat g_vertex_buffer_data[] = {
+        0.0f,  1.0f, 0.0f,
+        0.0f,  0.0f, 0.0f
+    };
+
+    GLuint vertexbuffer;
+    glGenBuffers(1, &vertexbuffer);
+    glBindBuffer(GL_ARRAY_BUFFER, vertexbuffer);
+    glVertexAttribPointer(
+        0,                  // attribute 0. No particular reason for 0, but must match the layout in the shader.
+        2,                  // size
+        GL_FLOAT,           // type
+        GL_FALSE,           // normalized?
+        0,                  // stride
+        (void*)0            // array buffer offset
+    );
+    glBufferData(GL_ARRAY_BUFFER, sizeof(g_vertex_buffer_data), g_vertex_buffer_data, GL_STATIC_DRAW);
+
+
     // Main loop
     while (!glfwWindowShouldClose(window))
     {
@@ -90,6 +114,14 @@ int main(int, char**)
         glfwGetFramebufferSize(window, &display_w, &display_h);
         glViewport(0, 0, display_w, display_h);
         glClear(GL_COLOR_BUFFER_BIT);
+
+        // Draw lines to screen
+        glEnableVertexAttribArray(0);
+        glBindBuffer(GL_ARRAY_BUFFER, vertexbuffer);
+        glDrawArrays(GL_LINES, 0, 2); // 2 indices for the 2 end points of 1 line
+        glDisableVertexAttribArray(0);
+
+        // Draw imgui stuff to screen
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 
         glfwSwapBuffers(window);
@@ -102,6 +134,9 @@ int main(int, char**)
 
     glfwDestroyWindow(window);
     glfwTerminate();
+
+    // Cleanup VBO
+    glDeleteBuffers(1, &vertexbuffer);
 
     return 0;
 }
