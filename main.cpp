@@ -339,7 +339,7 @@ void environment_initialize(Environment* const env, const int boundary_count)
 {
     env->boundaries = (Line*)std::malloc(sizeof(Line) * boundary_count);
     env->normals = (Vec2*)std::malloc(sizeof(Vec2) * boundary_count);
-    env->dampening = 1.0f;
+    env->dampening = 0.8f;
     env->gravity.x = 0.f;
     env->gravity.y = -1.f;
     env->n_active = 0;
@@ -569,6 +569,46 @@ void planets_destroy(Planets* const planets)
     std::free(planets->masses);
 }
 
+union Buttons
+{
+    struct BitField
+    {
+        uint64_t right_mouse_button : 1;
+        uint64_t left_mouse_button : 1;
+        uint64_t left_ctrl : 1;
+    };
+
+    BitField fields;
+    uint64_t mask;
+};
+
+struct UserInputState
+{
+    Buttons previous;
+    Buttons current;
+    Buttons pressed;
+    Buttons released;
+};
+
+void user_input_state_initialized(UserInputState* const state, GLFWwindow* const window)
+{
+    std::memset(&state->previous, 0, sizeof(Buttons));
+    std::memset(&state->current, 0, sizeof(Buttons));
+    std::memset(&state->pressed, 0, sizeof(Buttons));
+    std::memset(&state->released, 0, sizeof(Buttons));
+}
+
+void user_input_state_update(UserInputState* const state, GLFWwindow* const window)
+{
+    state->current.fields.right_mouse_button = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_RIGHT) == GLFW_PRESS;
+    state->current.fields.left_mouse_button = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS;
+    state->current.fields.left_ctrl = glfwGetKey(window, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS;
+    state->pressed.mask = (state->current.mask ^ state->previous.mask) & state->current.mask;
+    state->released.mask = (state->current.mask ^ state->previous.mask) & state->previous.mask;
+    std::memcpy(&state->previous, &state->current, sizeof(Buttons));  
+}
+
+
 int main(int, char**)
 {
     // Setup window
@@ -665,22 +705,27 @@ int main(int, char**)
     Planets planets;
     planets_initialize(&planets, N_PLANETS_MAX);
 
-    planets_spawn_at(&planets, Vec2{0.f, 0.f}, 1.f);
-
     // Initialize render data
     RenderPipelineData render_pipeline_data;
     render_pipeline_initialize(&render_pipeline_data);
+
+    // Update current used input states
+    UserInputState input_state;
+    user_input_state_initialized(&input_state, window);
 
     float point_size = 3.f;
 
     // Main loop
     while (!glfwWindowShouldClose(window))
     {
-        particle_state_reset(&ps, &env);
-
         const float dt = ImGui::GetIO().DeltaTime;
 
+        particle_state_reset(&ps, &env);
+
         glfwPollEvents();
+
+        // Update game user input stuff first
+        user_input_state_update(&input_state, window);
 
         // Start the Dear ImGui frame
         ImGui_ImplOpenGL3_NewFrame();
@@ -688,16 +733,19 @@ int main(int, char**)
         ImGui::NewFrame();
 
         // Spawn particle on click of mouse
+        if (input_state.current.fields.left_ctrl && input_state.current.fields.left_mouse_button)
         {
-            const int left_button_pressed = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT);
-            const int right_button_pressed = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_RIGHT);
-            if (left_button_pressed == GLFW_PRESS || right_button_pressed == GLFW_PRESS)
-            {
-                // Spawn a particle where the mouse clicks
-                Vec2 p;
-                get_cursor_position_normalized(&p, window, display_w, display_h);
-                particle_state_spawn_at(&ps, p);
-            }
+            // Spawn a particle where the mouse clicks
+            Vec2 p;
+            get_cursor_position_normalized(&p, window, display_w, display_h);
+            particle_state_spawn_at(&ps, p);
+        }
+        else if (input_state.pressed.fields.left_mouse_button)
+        {
+            // Spawn a planet where the mouse clicks
+            Vec2 p;
+            get_cursor_position_normalized(&p, window, display_w, display_h);
+            planets_spawn_at(&planets, p, 1.f /*mass*/);
         }
 
         // Apply planet gravity to particles
