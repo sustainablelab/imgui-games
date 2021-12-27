@@ -434,6 +434,17 @@ void particle_state_destroy(ParticleState* const ps)
     std::free(ps->forces);   
 }
 
+// Global key state
+bool space_is_pressed = false;
+
+// Look up key presses here
+void key_callback(GLFWwindow* window, int key, int scancode, int action, int mods)
+{
+    if (key == GLFW_KEY_SPACE)
+    {
+        space_is_pressed = true;
+    }
+}
 
 int main(int, char**)
 {
@@ -446,7 +457,8 @@ int main(int, char**)
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 0);
 
-    int display_w = 720, display_h = 720;
+    int small = 600;
+    int display_w = small, display_h = small;
 
     // Create window with graphics context
     GLFWwindow* window = glfwCreateWindow(
@@ -537,6 +549,14 @@ int main(int, char**)
     float point_size = 3.f;
     int n_to_spawn = 1;
 
+    // Notify when a key is pressed
+    glfwSetKeyCallback(window, key_callback);
+
+    // Create one planet, offset from the center of the screen
+    // TODO: make planet position the mouse x,y
+    Vec2 planet{0.0f, 0.5f}; // position
+    /* Vec2 planet_pull; // force */
+
     // Main loop
     while (!glfwWindowShouldClose(window))
     {
@@ -557,10 +577,38 @@ int main(int, char**)
             const int right_button_pressed = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_RIGHT);
             if (left_button_pressed == GLFW_PRESS || right_button_pressed == GLFW_PRESS)
             {
+                // Spawn a particle where the mouse clicks
                 Vec2 p;
                 get_cursor_position_normalized(&p, window, display_w, display_h);
                 particle_state_spawn_at(&ps, p);
             }
+            if (space_is_pressed) // Spawn a particle in the center of the screen
+            {
+                space_is_pressed = false;
+                Vec2 center{0.f, 0.f};
+                particle_state_spawn_at(&ps, center);
+            }
+        }
+
+        // Update planet to be the mouse
+        get_cursor_position_normalized(&planet, window, display_w, display_h);
+        // Calc pull of each planet on each particle
+        // Add results to forces
+        for (int i = 0; i < ps.n_active; ++i)
+        {
+            Vec2 force;
+            // Force is particle_position - planet_position
+            /* force.x = (ps.positions + i)->x - planet.x; */
+            /* force.y = (ps.positions + i)->y - planet.y; */
+            // Force is planet_position - particle_position
+            force.x = planet.x - (ps.positions + i)->x;
+            force.y = planet.y - (ps.positions + i)->y;
+            const float d = std::sqrt(vec2_length_squared(&force));
+            // Normalize the force
+            force.x /= d;
+            force.y /= d;
+            (ps.forces + i)->x += force.x;
+            (ps.forces + i)->y += force.y;
         }
 
         // Do particle update

@@ -922,3 +922,11 @@ Build tags and lib-tags:
 The advantage of invoking `make` from the Vim command line is
 that `:copen` opens the quickfix window where it is easy to jump
 to the line of code that caused an error or warning.
+
+# OpenGL on Windows
+
+```bash-msys
+$ pacman -S mingw64/mingw-w64-x86_64-glew
+```
+
+Then see conditional stuff I added for Windows with macro BOB.
