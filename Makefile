@@ -1,18 +1,74 @@
-EXE = bob.exe
-default-target: $(EXE)
+#
+# Cross Platform Makefile
+# Compatible with MSYS2/MINGW, Ubuntu 14.04.1 and Mac OS X
+#
+# You will need GLFW (http://www.glfw.org):
+# Linux:
+#   apt-get install libglfw-dev
+# Mac OS X:
+#   brew install glfw
+# MSYS2:
+#   pacman -S --noconfirm --needed mingw-w64-x86_64-toolchain mingw-w64-x86_64-glfw
+#
 
-IMGUI_DIR = imgui
+#CXX = g++
+#CXX = clang++
+
+EXE = bob
+IMGUI_DIR = ./imgui
 SOURCES = main.cpp
 SOURCES += $(IMGUI_DIR)/imgui.cpp $(IMGUI_DIR)/imgui_demo.cpp $(IMGUI_DIR)/imgui_draw.cpp $(IMGUI_DIR)/imgui_tables.cpp $(IMGUI_DIR)/imgui_widgets.cpp
 SOURCES += $(IMGUI_DIR)/backends/imgui_impl_glfw.cpp $(IMGUI_DIR)/backends/imgui_impl_opengl3.cpp
 OBJS = $(addsuffix .o, $(basename $(notdir $(SOURCES))))
+UNAME_S := $(shell uname -s)
+LINUX_GL_LIBS = -lGL
 
 CXXFLAGS = -I$(IMGUI_DIR) -I$(IMGUI_DIR)/backends
 CXXFLAGS += -g -Wall -Wformat
-CXXFLAGS += `pkg-config --cflags glfw3`
+LIBS =
 
-LIBS = -lglfw3 -lgdi32 -lopengl32 -limm32
+##---------------------------------------------------------------------
+## OPENGL ES
+##---------------------------------------------------------------------
 
+## This assumes a GL ES library available in the system, e.g. libGLESv2.so
+# CXXFLAGS += -DIMGUI_IMPL_OPENGL_ES2
+# LINUX_GL_LIBS = -lGLESv2
+
+##---------------------------------------------------------------------
+## BUILD FLAGS PER PLATFORM
+##---------------------------------------------------------------------
+
+ifeq ($(UNAME_S), Linux) #LINUX
+	ECHO_MESSAGE = "Linux"
+	LIBS += $(LINUX_GL_LIBS) `pkg-config --static --libs glfw3`
+
+	CXXFLAGS += `pkg-config --cflags glfw3`
+	CFLAGS = $(CXXFLAGS)
+endif
+
+ifeq ($(UNAME_S), Darwin) #APPLE
+	ECHO_MESSAGE = "Mac OS X"
+	LIBS += -framework OpenGL -framework Cocoa -framework IOKit -framework CoreVideo
+	LIBS += -L/usr/local/lib -L/opt/local/lib -L/opt/homebrew/lib
+	#LIBS += -lglfw3
+	LIBS += -lglfw
+
+	CXXFLAGS += -I/usr/local/include -I/opt/local/include -I/opt/homebrew/include
+	CFLAGS = $(CXXFLAGS)
+endif
+
+ifeq ($(OS), Windows_NT)
+	ECHO_MESSAGE = "MinGW"
+	LIBS += -lglfw3 -lgdi32 -lopengl32 -limm32
+
+	CXXFLAGS += `pkg-config --cflags glfw3`
+	CFLAGS = $(CXXFLAGS)
+endif
+
+##---------------------------------------------------------------------
+## BUILD RULES
+##---------------------------------------------------------------------
 
 %.o:%.cpp
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
@@ -23,33 +79,11 @@ LIBS = -lglfw3 -lgdi32 -lopengl32 -limm32
 %.o:$(IMGUI_DIR)/backends/%.cpp
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
+all: $(EXE)
+	@echo Build complete for $(ECHO_MESSAGE)
+
 $(EXE): $(OBJS)
 	$(CXX) -o $@ $^ $(CXXFLAGS) $(LIBS)
 
-.PHONY: what-compiler
-what-compiler: 
-	@echo $(CXX)
-
-.PHONY: clean
 clean:
-	rm -f libs.txt
-	rm -f $(EXE)
-	rm -f $(OBJS)
-
-.PHONY: print-libs
-print-libs: find-headers.c
-	$(CXX) $(CXXFLAGS) $< -M > libs.txt
-
-.PHONY: tags
-tags: main.cpp
-	ctags --c-kinds=+l --exclude=Makefile -R .
-
-.PHONY: lib-tags
-lib-tags: main.cpp
-	$(CXX) $(CXXFLAGS) $< -M > headers-windows.txt
-	python.exe parse-lib-tags.py
-	rm -f headers-windows.txt
-	ctags -f lib-tags --c-kinds=+p -L headers-posix.txt
-	rm -f headers-posix.txt
-
-
+	rm -f $(EXE) $(OBJS)
