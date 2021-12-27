@@ -268,13 +268,13 @@ void render_pipeline_draw_lines(RenderPipelineData* const r_data, const Line* co
 }
 
 
-// void get_cursor_position_normalized(Vec2* const cursor_position, GLFWwindow* const window, const int display_w, const int display_h)
-// {
-//     double xpos, ypos;
-//     glfwGetCursorPos(window, &xpos, &ypos);
-//     cursor_position->x = 2.f * ((float)xpos / (float)display_w) - 1.f;
-//     cursor_position->y = 1.f - 2.f * ((float)ypos / (float)display_h);
-// }
+void get_cursor_position_normalized(Vec2* const cursor_position, GLFWwindow* const window, const int display_w, const int display_h)
+{
+    double xpos, ypos;
+    glfwGetCursorPos(window, &xpos, &ypos);
+    cursor_position->x = 2.f * ((float)xpos / (float)display_w) - 1.f;
+    cursor_position->y = 1.f - 2.f * ((float)ypos / (float)display_h);
+}
 
 static const int N_ENVIRONMENT_LINES_MAX = 10;
 
@@ -353,7 +353,7 @@ void particle_state_initialize(ParticleState* const ps, const int particle_count
     ps->n_max = particle_count;
 }
 
-void particle_state_spawn(ParticleState* const ps, int n_spawn, const float y_min, const float y_max)
+void particle_state_spawn_random(ParticleState* const ps, int n_spawn, const float y_min, const float y_max)
 {
     // Clamp number of points to spawn to max allocated
     n_spawn = imin(ps->n_max - ps->n_active, n_spawn);
@@ -370,6 +370,20 @@ void particle_state_spawn(ParticleState* const ps, int n_spawn, const float y_mi
         // Increment number of active particles
         ++ps->n_active;
     }
+}
+
+void particle_state_spawn_at(ParticleState* const ps, const Vec2 position)
+{
+    if (ps->n_active >= ps->n_max)
+    {
+        return;
+    }
+
+    // Initialize point state
+    vec2_set(ps->positions + ps->n_active, &position);
+
+    // Increment number of active particles
+    ++ps->n_active;
 }
 
 void particle_state_reset(ParticleState* const ps, const Environment* const env)
@@ -513,6 +527,9 @@ int main(int, char**)
     ParticleState ps;
     particle_state_initialize(&ps, N_POINTS_MAX);
 
+    // Add some initial particles
+    particle_state_spawn_random(&ps, 100, -BOUNDARY_LIMIT, -BOUNDARY_LIMIT + 0.1f);
+
     // Initialize render data
     RenderPipelineData render_pipeline_data;
     render_pipeline_initialize(&render_pipeline_data);
@@ -534,11 +551,23 @@ int main(int, char**)
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
 
+        // Spawn particle on click of mouse
+        {
+            const int left_button_pressed = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT);
+            const int right_button_pressed = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_RIGHT);
+            if (left_button_pressed == GLFW_PRESS || right_button_pressed == GLFW_PRESS)
+            {
+                Vec2 p;
+                get_cursor_position_normalized(&p, window, display_w, display_h);
+                particle_state_spawn_at(&ps, p);
+            }
+        }
+
         // Do particle update
         particle_state_update(&ps, &env, dt);
 
         // Create a window called "Hello, world!" and append into it.
-        ImGui::Begin("Hello, world!");
+        ImGui::Begin("Debug stuff");
         ImGui::Text("Points : (%d)", ps.n_active);
         ImGui::Text("Boundaries : (%d)", env.n_active);
         ImGui::InputFloat2("gravity", (float*)(&env.gravity));
@@ -550,7 +579,7 @@ int main(int, char**)
         ImGui::SliderInt("n spawns", &n_to_spawn, 1, N_POINTS_MAX_SPAWN);
         if (ImGui::SmallButton("Spawn"))
         {
-            particle_state_spawn(&ps, n_to_spawn, -BOUNDARY_LIMIT, -BOUNDARY_LIMIT + 0.1f);
+            particle_state_spawn_random(&ps, n_to_spawn, -BOUNDARY_LIMIT, -BOUNDARY_LIMIT + 0.1f);
         }
         ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
         ImGui::End();
