@@ -2,7 +2,12 @@
 #include "imgui_impl_glfw.h"
 #include "imgui_impl_opengl3.h"
 #include <stdio.h>
+/* #include "imgui_impl_opengl3_loader.h" */
+#if defined(BOB)
+#include <GL/glew.h>
+#else
 #include <GLES3/gl3.h>
+#endif
 #include <GLFW/glfw3.h> // Will drag system OpenGL headers
 
 static void glfw_error_callback(int error, const char* description)
@@ -51,6 +56,9 @@ int main(int, char**)
     glfwMakeContextCurrent(window);
     glfwSwapInterval(1); // Enable vsync
 
+#if defined(BOB)
+    glewInit();
+#endif
     // Setup Dear ImGui context
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
