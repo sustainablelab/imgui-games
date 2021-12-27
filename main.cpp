@@ -460,7 +460,6 @@ void particle_state_update(ParticleState* const ps, const Environment* const env
     }
 
     // Collide points and environment lines
-    //Vec2 intercept;
     for (int i = 0; i < ps->n_active; ++i)
     {
         for (int l = 0; l < env->n_active; ++l)
@@ -469,7 +468,11 @@ void particle_state_update(ParticleState* const ps, const Environment* const env
             {
                 vec2_reflect(ps->velocities + i, ps->velocities + i, env->normals + l);
                 vec2_scale(ps->velocities + i, env->dampening);
-                vec2_compound_add(ps->forces + i, &negative_gravity);
+
+                const float d = vec2_dot(env->normals + i, &env->gravity);
+                Vec2 projected_gravity = negative_gravity;
+                vec2_scale_compound_add(&projected_gravity, &env->gravity, d);
+                vec2_set(ps->forces + i, &projected_gravity);
                 break;
             }
         }
@@ -494,16 +497,76 @@ void particle_state_destroy(ParticleState* const ps)
     std::free(ps->forces);   
 }
 
-// Global key state
-bool space_is_pressed = false;
-
-// Look up key presses here
-void key_callback(GLFWwindow* window, int key, int scancode, int action, int mods)
+struct Planets
 {
-    if (key == GLFW_KEY_SPACE)
+    Vec2* positions;
+    float* masses;
+    int n_active;
+    int n_max;
+};
+
+void planets_initialize(Planets* const planets, const int planets_count)
+{
+    planets->positions = (Vec2*)std::malloc(sizeof(Vec2) * planets_count);
+    vec2_set_zero_n(planets->positions, planets_count);
+
+    planets->masses = (float*)std::malloc(sizeof(float) * planets_count);
+    std::memset(planets->masses, 0, sizeof(float) * planets_count);
+
+    planets->n_active = 0;
+    planets->n_max = planets_count;
+}
+
+void planets_spawn_at(Planets* const planets, const Vec2 position, const float mass)
+{
+    if (planets->n_active >= planets->n_max)
     {
-        space_is_pressed = true;
+        return;
     }
+
+    // Initialize point state
+    vec2_set(planets->positions + planets->n_active, &position);
+
+    // Initialize mass
+    *(planets->masses + planets->n_active) = mass;
+
+    // Increment number of active particles
+    ++planets->n_active;
+}
+
+void planets_apply_to_particles(const Planets* const planets, ParticleState* const ps)
+{
+    // Calc pull of each planet on each particle; add results to forces
+    for (int i = 0; i < ps->n_active; ++i)
+    {
+        for (int p = 0; p < planets->n_active; ++p)
+        {
+            Vec2 force;
+            // Force is particle_position - planet_position
+            /* force.x = (ps.positions + i)->x - planet.x; */
+            /* force.y = (ps.positions + i)->y - planet.y; */
+            // Force is planet_position - particle_position
+            force.x = (planets->positions + p)->x - (ps->positions + i)->x;
+            force.y = (planets->positions + p)->y - (ps->positions + i)->y;
+
+            // Normalize the force
+            const float r = vec2_length_squared(&force);
+            if (r > 1e-4f)
+            {
+                const float m = *(planets->masses + p) / r;
+                force.x *= m;
+                force.y *= m;
+                (ps->forces + i)->x += force.x;
+                (ps->forces + i)->y += force.y;
+            }
+        }
+    }
+}
+
+void planets_destroy(Planets* const planets)
+{
+    std::free(planets->positions);
+    std::free(planets->masses);
 }
 
 int main(int, char**)
@@ -591,7 +654,7 @@ int main(int, char**)
         Vec2{+0.5f * BOUNDARY_LIMIT, -0.5 * BOUNDARY_LIMIT}
     );
 
-    // Setup batch line buffers
+    static const int N_PLANETS_MAX = 10;
     static const int N_POINTS_MAX = 200000;
     static const int N_POINTS_MAX_SPAWN = 1000;
 
@@ -599,9 +662,11 @@ int main(int, char**)
     ParticleState ps;
     particle_state_initialize(&ps, N_POINTS_MAX);
 
-    // Add some initial particles
-    particle_state_spawn_at(&ps, Vec2{0, 0});
-    //particle_state_spawn_random(&ps, 1, -BOUNDARY_LIMIT, -BOUNDARY_LIMIT + 0.1f);
+    // Initial planets
+    Planets planets;
+    planets_initialize(&planets, N_PLANETS_MAX);
+
+    planets_spawn_at(&planets, Vec2{0.f, 0.f}, 1.f);
 
     // Initialize render data
     RenderPipelineData render_pipeline_data;
@@ -609,9 +674,6 @@ int main(int, char**)
 
     float point_size = 3.f;
     int n_to_spawn = 1;
-
-    // Notify when a key is pressed
-    glfwSetKeyCallback(window, key_callback);
 
     // Create one planet, offset from the center of the screen
     // TODO: make planet position the mouse x,y
@@ -643,34 +705,10 @@ int main(int, char**)
                 get_cursor_position_normalized(&p, window, display_w, display_h);
                 particle_state_spawn_at(&ps, p);
             }
-            if (space_is_pressed) // Spawn a particle in the center of the screen
-            {
-                space_is_pressed = false;
-                Vec2 center{0.f, 0.f};
-                particle_state_spawn_at(&ps, center);
-            }
         }
 
-        // Update planet to be the mouse
-        get_cursor_position_normalized(&planet, window, display_w, display_h);
-        // Calc pull of each planet on each particle
-        // Add results to forces
-        for (int i = 0; i < ps.n_active; ++i)
-        {
-            Vec2 force;
-            // Force is particle_position - planet_position
-            /* force.x = (ps.positions + i)->x - planet.x; */
-            /* force.y = (ps.positions + i)->y - planet.y; */
-            // Force is planet_position - particle_position
-            force.x = planet.x - (ps.positions + i)->x;
-            force.y = planet.y - (ps.positions + i)->y;
-            const float d = std::sqrt(vec2_length_squared(&force));
-            // Normalize the force
-            force.x /= d;
-            force.y /= d;
-            (ps.forces + i)->x += force.x;
-            (ps.forces + i)->y += force.y;
-        }
+        // Apply planet gravity to particles
+        planets_apply_to_particles(&planets, &ps);
 
         // Do particle update
         particle_state_update(&ps, &env, dt);
@@ -720,6 +758,7 @@ int main(int, char**)
 
     // Cleanup game state
     render_pipeline_destroy(&render_pipeline_data);
+    planets_destroy(&planets);
     particle_state_destroy(&ps);
     environment_destroy(&env);
 
