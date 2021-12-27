@@ -34,8 +34,6 @@ struct Line
     Vec2 head;
 };
 
-
-
 // for each point
 //    for each line
 //       if intersects(point, line)
@@ -56,10 +54,27 @@ inline float clampf(const float v, const float vmin, const float vmax)
     return std::fmax(vmin, std::fmin(v, vmax));
 }
 
-inline void vec2_scale_add(Vec2* const lhs, Vec2* const rhs, const float scale)
+inline void vec2_scale_compound_add(Vec2* const lhs, const Vec2* const rhs, const float scale)
 {
     lhs->x += rhs->x * scale;
     lhs->y += rhs->y * scale;
+}
+
+inline void vec2_compound_add(Vec2* const lhs, const Vec2* const rhs)
+{
+    lhs->x += rhs->x;
+    lhs->y += rhs->y;
+}
+
+inline void vec2_negate(Vec2* const dst, const Vec2* const src)
+{
+    dst->x = -src->x;
+    dst->y = -src->y;  
+}
+
+inline void vec2_set_zero(Vec2* const dst)
+{
+    std::memset(dst, 0, sizeof(Vec2));
 }
 
 inline void vec2_set_zero_n(Vec2* const dst, const int n)
@@ -169,42 +184,73 @@ void integrate_states_fixed_step(Vec2* positions, Vec2* velocities, Vec2* accele
         // f = m * a
         // a = f / m = f * inv_mass
         // v += a * dt
-        vec2_scale_add(velocities + i, acceleratons + i, dt);
+        vec2_scale_compound_add(velocities + i, acceleratons + i, dt);
 
         // x += v * dt
-        vec2_scale_add(positions + i, velocities + i, dt);
+        vec2_scale_compound_add(positions + i, velocities + i, dt);
     }
 }
 
-// void collide_points(Vec2* const positions, Vec2* const velocities, Vec2* const forces, const int src_id, const int dst_id)
-// {
-//     if (vec2_near(*(positions + src_id), *(positions + dst_id), 1e-1))
-//     {
-
-//     }
-// }
-
-inline bool cross_product(const Vec2* const a, const Vec2* const b, const Vec2* const c)
+inline float vec2_cross_product(const Vec2* const lhs, const Vec2* const rhs)
 {
-    return (a->x - c->x) * (b->y - c->y) - (a->y - c->y) * (b->x - c->x);
+    return (lhs->x * rhs->y) - (lhs->y * rhs->x);
 }
 
-inline bool point_within_aabb(const Vec2* const top, const Vec2* const bot, const Vec2* const point)
+inline bool vec2_line_segment_line_segment_intercept(
+    Vec2* intercept,
+    const Vec2* const p,
+    const Vec2* const p_head,
+    const Vec2* const q,
+    const Vec2* const q_head,
+    const float tolerance)
 {
-    return ((top->x <= point->x && point->x <= bot->x) ||
-            (bot->x <= point->x && point->x <= top->x)) &&
-           ((top->y <= point->y && point->y <= bot->y) ||
-            (bot->y <= point->y && point->y <= top->y));
+    const Vec2 r{p_head->x - p->x, p_head->y - p->y};
+    const Vec2 s{q_head->x - q->x, q_head->y - q->y};
+    const float r_cross_s = vec2_cross_product(&r, &s);
+
+    // Parallel case
+    if (std::abs(r_cross_s) < tolerance)
+    {
+        return false;
+    }
+
+    const Vec2 q_m_p{q->x - p->x, q->y - p->y};
+    const float q_m_p_cross_r = vec2_cross_product(&q_m_p, &r);
+    const float u = q_m_p_cross_r / r_cross_s;
+    const float t = vec2_cross_product(&q_m_p, &s) / r_cross_s;
+
+    // Intersection on segment
+    if (0 <= u && u <= 1 && 0 <= t && t <= 1)
+    {
+        intercept->x = p->x + t * r.x;
+        intercept->y = p->y + t * r.y;
+        return true;
+    }
+
+    // Intersection off segment
+    return false;
 }
 
-inline bool point_on_line(const Line* const line, const Vec2* const point)
+inline bool vec2_within_aabb(const Vec2* const top, const Vec2* const bot, const Vec2* const point, const float tolerance)
 {
-    return std::abs(cross_product(&line->tail, &line->head, point)) < 1e-3f;
+    const float min_x = std::fmin(top->x, bot->x);
+    const float min_y = std::fmin(top->y, bot->y);
+    const float max_x = std::fmax(top->x, bot->x);
+    const float max_y = std::fmax(top->y, bot->y);
+    return ((min_x - tolerance) < point->x && point->x < (max_x + tolerance)) &&
+           ((min_y - tolerance) < point->y && point->y < (max_y + tolerance));
 }
 
-inline bool point_on_line_segment(const Line* const line, const Vec2* const point)
+inline bool vec2_near_line(const Line* const line, const Vec2* const point, const float tolerance)
 {
-    return point_on_line(line, point) && point_within_aabb(&line->tail, &line->head, point);
+    const Vec2 lhs{line->head.x - line->tail.x, line->head.y - line->tail.y};
+    const Vec2 rhs{point->x - line->tail.x, point->y - line->tail.y};
+    return std::abs(vec2_cross_product(&lhs, &rhs)) < tolerance;
+}
+
+inline bool vec2_near_line_segment(const Line* const line, const Vec2* const point, const float tolerance)
+{
+    return vec2_near_line(line, point, tolerance) && vec2_within_aabb(&line->tail, &line->head, point, tolerance);
 }
 
 struct RenderPipelineData
@@ -293,7 +339,7 @@ void environment_initialize(Environment* const env, const int boundary_count)
 {
     env->boundaries = (Line*)std::malloc(sizeof(Line) * boundary_count);
     env->normals = (Vec2*)std::malloc(sizeof(Vec2) * boundary_count);
-    env->dampening = 0.95f;
+    env->dampening = 1.0f;
     env->gravity.x = 0.f;
     env->gravity.y = -1.f;
     env->n_active = 0;
@@ -329,6 +375,7 @@ struct ParticleState
 {
     Vec2* positions_previous;
     Vec2* positions;
+    Vec2* velocities_previous;
     Vec2* velocities;
     Vec2* forces;
     int n_active;
@@ -342,6 +389,9 @@ void particle_state_initialize(ParticleState* const ps, const int particle_count
 
     ps->positions = (Vec2*)std::malloc(sizeof(Vec2) * particle_count);
     vec2_set_zero_n(ps->positions, particle_count);
+
+    ps->velocities_previous = (Vec2*)std::malloc(sizeof(Vec2) * particle_count);
+    vec2_set_zero_n(ps->velocities_previous, particle_count);
 
     ps->velocities = (Vec2*)std::malloc(sizeof(Vec2) * particle_count);
     vec2_set_zero_n(ps->velocities, particle_count);
@@ -391,16 +441,38 @@ void particle_state_reset(ParticleState* const ps, const Environment* const env)
     vec2_set_n(ps->forces, &env->gravity, ps->n_active);
 }
 
+
 void particle_state_update(ParticleState* const ps, const Environment* const env, const float dt)
 {
     // Cache previous positions
     vec2_copy_n(ps->positions_previous, ps->positions, ps->n_active);
+    vec2_copy_n(ps->velocities_previous, ps->velocities, ps->n_active);
+
+    // Negative force to apply on contact
+    Vec2 negative_gravity;
+    vec2_negate(&negative_gravity, &env->gravity);
 
     // Divide by particle mass
     for (int i = 0; i < ps->n_active; ++i)
     {
         (ps->forces + i)->x /= 1.f;
         (ps->forces + i)->y /= 1.f;
+    }
+
+    // Collide points and environment lines
+    //Vec2 intercept;
+    for (int i = 0; i < ps->n_active; ++i)
+    {
+        for (int l = 0; l < env->n_active; ++l)
+        {
+            if (vec2_near_line_segment(env->boundaries + l, ps->positions + i, dt))
+            {
+                vec2_reflect(ps->velocities + i, ps->velocities + i, env->normals + l);
+                vec2_scale(ps->velocities + i, env->dampening);
+                vec2_compound_add(ps->forces + i, &negative_gravity);
+                break;
+            }
+        }
     }
 
     // Update point states
@@ -411,25 +483,13 @@ void particle_state_update(ParticleState* const ps, const Environment* const env
     {
         vec2_clamp(ps->positions + i, -BOUNDARY_LIMIT, +BOUNDARY_LIMIT);
     }
-
-    // Collide points and environment lines
-    for (int l = 0; l < env->n_active; ++l)
-    {
-        for (int i = 0; i < ps->n_active; ++i)
-        {
-            if (point_on_line_segment(env->boundaries + l, ps->positions + i))
-            {
-                vec2_reflect(ps->velocities + i, ps->velocities + i, env->normals + l);
-                vec2_scale(ps->velocities + i, env->dampening);
-            }
-        }
-    }
 }
 
 void particle_state_destroy(ParticleState* const ps)
 {
     std::free(ps->positions_previous);
     std::free(ps->positions);
+    std::free(ps->velocities_previous);
     std::free(ps->velocities);
     std::free(ps->forces);   
 }
@@ -540,7 +600,8 @@ int main(int, char**)
     particle_state_initialize(&ps, N_POINTS_MAX);
 
     // Add some initial particles
-    particle_state_spawn_random(&ps, 100, -BOUNDARY_LIMIT, -BOUNDARY_LIMIT + 0.1f);
+    particle_state_spawn_at(&ps, Vec2{0, 0});
+    //particle_state_spawn_random(&ps, 1, -BOUNDARY_LIMIT, -BOUNDARY_LIMIT + 0.1f);
 
     // Initialize render data
     RenderPipelineData render_pipeline_data;
