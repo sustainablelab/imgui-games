@@ -46,6 +46,11 @@ struct Line
 static const float BOUNDARY_PADDING = 0.05f;
 static const float BOUNDARY_LIMIT = 1.f - BOUNDARY_PADDING;
 
+inline int imin(const int lhs, const int rhs)
+{
+    return ((lhs <= rhs) * lhs) + ((rhs < lhs) * rhs);
+}
+
 inline float clampf(const float v, const float vmin, const float vmax)
 {
     return std::fmax(vmin, std::fmin(v, vmax));
@@ -157,15 +162,15 @@ inline Vec2 line_normal(const Line* const line)
     return normal;
 }
 
-void integrate(Vec2* positions, Vec2* velocities, Vec2* forces, int n, float dt)
+void integrate_states_fixed_step(Vec2* positions, Vec2* velocities, Vec2* acceleratons, int n, float dt)
 {
-    #define INV_MASS 1.f
     for (int i = 0; i < n; ++i)
     {
         // f = m * a
         // a = f / m = f * inv_mass
         // v += a * dt
-        vec2_scale_add(velocities + i, forces + i, INV_MASS * dt);
+        vec2_scale_add(velocities + i, acceleratons + i, dt);
+
         // x += v * dt
         vec2_scale_add(positions + i, velocities + i, dt);
     }
@@ -271,30 +276,148 @@ void render_pipeline_draw_lines(RenderPipelineData* const r_data, const Line* co
 //     cursor_position->y = 1.f - 2.f * ((float)ypos / (float)display_h);
 // }
 
+static const int N_ENVIRONMENT_LINES_MAX = 10;
 
-
-void spawn_point(Vec2* const positions,
-                 Vec2* const velocities,
-                 int* const n_points_active,
-                 const Vec2* const initial_position,
-                 const Vec2* const initial_velocity,
-                 const int n_points_max)
+struct Environment
 {
-    // Already at max number of points; abort
-    if (*n_points_active == n_points_max)
+    Line* boundaries;
+    Vec2* normals;
+    int n_active;
+    int n_max;
+
+    float dampening;
+    Vec2 gravity;
+};
+
+void environment_initialize(Environment* const env, const int boundary_count)
+{
+    env->boundaries = (Line*)std::malloc(sizeof(Line) * boundary_count);
+    env->normals = (Vec2*)std::malloc(sizeof(Vec2) * boundary_count);
+    env->dampening = 0.95f;
+    env->gravity.x = 0.f;
+    env->gravity.y = -1.f;
+    env->n_active = 0;
+    env->n_max = boundary_count;
+}
+
+void environment_add_boundary(Environment* const env, const Vec2 tail, const Vec2 head)
+{
+    // Don't add anything if we are already at/over the max allocated boundary count
+    if (env->n_active >= env->n_max)
     {
         return;
     }
 
+    // Add boundary points
+    (env->boundaries + env->n_active)->tail = tail;
+    (env->boundaries + env->n_active)->head = head;
+
+    // Compute normal for boundary
+    *(env->normals + env->n_active) = line_normal(env->boundaries + env->n_active);
+
+    // Count new boundary
+    ++env->n_active;
+}
+
+void environment_destroy(Environment* const env)
+{
+    std::free(env->boundaries);
+    std::free(env->normals);
+}
+
+struct ParticleState
+{
+    Vec2* positions_previous;
+    Vec2* positions;
+    Vec2* velocities;
+    Vec2* forces;
+    int n_active;
+    int n_max;
+};
+
+void particle_state_initialize(ParticleState* const ps, const int particle_count)
+{
+    ps->positions_previous = (Vec2*)std::malloc(sizeof(Vec2) * particle_count);
+    vec2_set_zero_n(ps->positions_previous, particle_count);
+
+    ps->positions = (Vec2*)std::malloc(sizeof(Vec2) * particle_count);
+    vec2_set_zero_n(ps->positions, particle_count);
+
+    ps->velocities = (Vec2*)std::malloc(sizeof(Vec2) * particle_count);
+    vec2_set_zero_n(ps->velocities, particle_count);
+
+    ps->forces = (Vec2*)std::malloc(sizeof(Vec2) * particle_count);
+    vec2_set_zero_n(ps->forces, particle_count);
+
+    ps->n_active = 0;
+    ps->n_max = particle_count;
+}
+
+void particle_state_spawn(ParticleState* const ps, int n_spawn, const float y_min, const float y_max)
+{
+    // Clamp number of points to spawn to max allocated
+    n_spawn = imin(ps->n_max - ps->n_active, n_spawn);
+
     // Initialize point state
+    while (n_spawn-- > 0)
     {
-        const int i = *n_points_active;
-        vec2_set(positions + i, initial_position);
-        vec2_set(velocities + i, initial_velocity);
+        // Get random starting positions and velocities
+        Vec2 p_init;
+        vec2_set_random_uniform_scaled(&p_init, BOUNDARY_LIMIT);
+        p_init.y = std::fmin(y_max, std::fmax(y_min, p_init.y));
+        vec2_set(ps->positions + ps->n_active, &p_init);
+
+        // Increment number of active particles
+        ++ps->n_active;
+    }
+}
+
+void particle_state_reset(ParticleState* const ps, const Environment* const env)
+{
+    vec2_set_n(ps->forces, &env->gravity, ps->n_active);
+}
+
+void particle_state_update(ParticleState* const ps, const Environment* const env, const float dt)
+{
+    // Cache previous positions
+    vec2_copy_n(ps->positions_previous, ps->positions, ps->n_active);
+
+    // Divide by particle mass
+    for (int i = 0; i < ps->n_active; ++i)
+    {
+        (ps->forces + i)->x /= 1.f;
+        (ps->forces + i)->y /= 1.f;
     }
 
-    // Record that a new point was added
-    ++(*n_points_active);
+    // Update point states
+    integrate_states_fixed_step(ps->positions, ps->velocities, ps->forces, ps->n_active, dt);
+
+    // Apply hard screen limits on position
+    for (int i = 0; i < ps->n_active; ++i)
+    {
+        vec2_clamp(ps->positions + i, -BOUNDARY_LIMIT, +BOUNDARY_LIMIT);
+    }
+
+    // Collide points and environment lines
+    for (int l = 0; l < env->n_active; ++l)
+    {
+        for (int i = 0; i < ps->n_active; ++i)
+        {
+            if (point_on_line_segment(env->boundaries + l, ps->positions + i))
+            {
+                vec2_reflect(ps->velocities + i, ps->velocities + i, env->normals + l);
+                vec2_scale(ps->velocities + i, env->dampening);
+            }
+        }
+    }
+}
+
+void particle_state_destroy(ParticleState* const ps)
+{
+    std::free(ps->positions_previous);
+    std::free(ps->positions);
+    std::free(ps->velocities);
+    std::free(ps->forces);   
 }
 
 
@@ -343,66 +466,64 @@ int main(int, char**)
     ImGui_ImplGlfw_InitForOpenGL(window, true);
     ImGui_ImplOpenGL3_Init(glsl_version);
 
-    static const int N_ENVIRONMENT_LINES = 4;
-    static const Line environment[N_ENVIRONMENT_LINES] = {
-        // bottom
-        Line{
-            Vec2{-BOUNDARY_LIMIT, -BOUNDARY_LIMIT},
-            Vec2{+BOUNDARY_LIMIT, -BOUNDARY_LIMIT}
-        },
-        // right
-        Line{
-            Vec2{+BOUNDARY_LIMIT, -BOUNDARY_LIMIT},
-            Vec2{+BOUNDARY_LIMIT, +BOUNDARY_LIMIT}
-        },
-        // top
-        Line{
-            Vec2{-BOUNDARY_LIMIT, +BOUNDARY_LIMIT},
-            Vec2{+BOUNDARY_LIMIT, +BOUNDARY_LIMIT}
-        },
-        // left
-        Line{
-            Vec2{-BOUNDARY_LIMIT, -BOUNDARY_LIMIT},
-            Vec2{-BOUNDARY_LIMIT, +BOUNDARY_LIMIT}
-        },
-    };
-    Vec2 environment_normals[N_ENVIRONMENT_LINES];
-    for (int i = 0; i < N_ENVIRONMENT_LINES; ++i)
-    {
-        *(environment_normals + i) = line_normal(environment + i);
-    }
+    Environment env;
+    environment_initialize(&env, N_ENVIRONMENT_LINES_MAX);
+    // bottom wall
+    environment_add_boundary(
+        &env,
+        Vec2{-BOUNDARY_LIMIT, -BOUNDARY_LIMIT},
+        Vec2{+BOUNDARY_LIMIT, -BOUNDARY_LIMIT}
+    );
+    // right wall
+    environment_add_boundary(
+        &env,
+        Vec2{+BOUNDARY_LIMIT, -BOUNDARY_LIMIT},
+        Vec2{+BOUNDARY_LIMIT, +BOUNDARY_LIMIT}
+    );
+    // top wall
+    environment_add_boundary(
+        &env,
+        Vec2{-BOUNDARY_LIMIT, +BOUNDARY_LIMIT},
+        Vec2{+BOUNDARY_LIMIT, +BOUNDARY_LIMIT}
+    );
+    // left wall
+    environment_add_boundary(
+        &env,
+        Vec2{-BOUNDARY_LIMIT, -BOUNDARY_LIMIT},
+        Vec2{-BOUNDARY_LIMIT, +BOUNDARY_LIMIT}
+    );
+
+    // add some hard-coded level stuff
+    environment_add_boundary(
+        &env,
+        Vec2{-0.5f * BOUNDARY_LIMIT, +0.5 * BOUNDARY_LIMIT},
+        Vec2{+1.0f * BOUNDARY_LIMIT, +0.5 * BOUNDARY_LIMIT}
+    );
+    environment_add_boundary(
+        &env,
+        Vec2{-1.0f * BOUNDARY_LIMIT, -0.5 * BOUNDARY_LIMIT},
+        Vec2{+0.5f * BOUNDARY_LIMIT, -0.5 * BOUNDARY_LIMIT}
+    );
 
     // Setup batch line buffers
     static const int N_POINTS_MAX = 200000;
     static const int N_POINTS_MAX_SPAWN = 1000;
 
-    // Number of points to update / draw per frame
-    int n_active_points = 0;
-
-    // Buffers for point state (pos, vel) and force accumulator
-    Vec2* positions_previous = (Vec2*)std::malloc(sizeof(Vec2) * N_POINTS_MAX);
-    Vec2* positions = (Vec2*)std::malloc(sizeof(Vec2) * N_POINTS_MAX);
-    Vec2* velocities = (Vec2*)std::malloc(sizeof(Vec2) * N_POINTS_MAX);
-    Vec2* forces = (Vec2*)std::malloc(sizeof(Vec2) * N_POINTS_MAX);
-
-    // Initialize all data to zero
-    vec2_set_zero_n(positions, N_POINTS_MAX);
-    vec2_set_zero_n(velocities, N_POINTS_MAX);
-    vec2_set_zero_n(forces, N_POINTS_MAX);
+    // Initialize particles
+    ParticleState ps;
+    particle_state_initialize(&ps, N_POINTS_MAX);
 
     // Initialize render data
     RenderPipelineData render_pipeline_data;
     render_pipeline_initialize(&render_pipeline_data);
 
     float point_size = 3.f;
-    float dampening = 0.95f;
-    Vec2 gravity{0.f, -1.f};
     int n_to_spawn = 1;
 
     // Main loop
     while (!glfwWindowShouldClose(window))
     {
-        vec2_set_n(forces, &gravity, n_active_points);
+        particle_state_reset(&ps, &env);
 
         const float dt = ImGui::GetIO().DeltaTime;
 
@@ -413,36 +534,15 @@ int main(int, char**)
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
 
-        // Cache previous positions
-        vec2_copy_n(positions_previous, positions, n_active_points);
-
-        // Update point states
-        integrate(positions, velocities, forces, n_active_points, dt);
-
-        // Apply hard limits on position
-        for (int i = 0; i < n_active_points; ++i)
-        {
-            vec2_clamp(positions + i, -BOUNDARY_LIMIT, +BOUNDARY_LIMIT);
-        }
-
-        // Collide points and environment lines
-        for (int l = 0; l < N_ENVIRONMENT_LINES; ++l)
-        {
-            for (int i = 0; i < n_active_points; ++i)
-            {
-                if (point_on_line_segment(environment + l, positions + i))
-                {
-                    vec2_reflect(velocities + i, velocities + i, environment_normals + l);
-                    vec2_scale(velocities + i, dampening);
-                }
-            }
-        }
+        // Do particle update
+        particle_state_update(&ps, &env, dt);
 
         // Create a window called "Hello, world!" and append into it.
         ImGui::Begin("Hello, world!");
-        ImGui::Text("Points : (%d)", n_active_points);
-        ImGui::InputFloat2("gravity", (float*)(&gravity));
-        ImGui::SliderFloat("dampening", &dampening, 0.1f, 1.f);
+        ImGui::Text("Points : (%d)", ps.n_active);
+        ImGui::Text("Boundaries : (%d)", env.n_active);
+        ImGui::InputFloat2("gravity", (float*)(&env.gravity));
+        ImGui::SliderFloat("dampening", &env.dampening, 0.1f, 1.f);
         if (ImGui::SliderFloat("point size", &point_size, 1.f, 20.f))
         {
             glPointSize(point_size);
@@ -450,20 +550,7 @@ int main(int, char**)
         ImGui::SliderInt("n spawns", &n_to_spawn, 1, N_POINTS_MAX_SPAWN);
         if (ImGui::SmallButton("Spawn"))
         {
-            for (int i = 0; i < n_to_spawn; ++i)
-            {
-                Vec2 p_init, v_init;
-                vec2_set_random_uniform_scaled(&p_init, 0.9f);
-                vec2_set_random_uniform_scaled(&v_init, 1.0f);
-                spawn_point(
-                    positions,
-                    velocities,
-                    &n_active_points,
-                    &p_init,
-                    &v_init,
-                    N_POINTS_MAX
-                );
-            }
+            particle_state_spawn(&ps, n_to_spawn, -BOUNDARY_LIMIT, -BOUNDARY_LIMIT + 0.1f);
         }
         ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
         ImGui::End();
@@ -476,8 +563,8 @@ int main(int, char**)
         glClear(GL_COLOR_BUFFER_BIT);
 
         // Draw lines to screen
-        render_pipeline_draw_points(&render_pipeline_data, positions, n_active_points);
-        render_pipeline_draw_lines(&render_pipeline_data, environment, N_ENVIRONMENT_LINES);
+        render_pipeline_draw_points(&render_pipeline_data, ps.positions, ps.n_active);
+        render_pipeline_draw_lines(&render_pipeline_data, env.boundaries, env.n_active);
 
         // Draw imgui stuff to screen
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
@@ -493,14 +580,10 @@ int main(int, char**)
     glfwDestroyWindow(window);
     glfwTerminate();
 
-    // Cleanup VBO
+    // Cleanup game state
     render_pipeline_destroy(&render_pipeline_data);
-
-    // Cleanup point data
-    std::free(positions_previous);
-    std::free(positions);
-    std::free(velocities);
-    std::free(forces);
+    particle_state_destroy(&ps);
+    environment_destroy(&env);
 
     return 0;
 }
