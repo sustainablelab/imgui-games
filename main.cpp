@@ -34,8 +34,6 @@ struct Line
     Vec2 head;
 };
 
-
-
 // for each point
 //    for each line
 //       if intersects(point, line)
@@ -56,10 +54,27 @@ inline float clampf(const float v, const float vmin, const float vmax)
     return std::fmax(vmin, std::fmin(v, vmax));
 }
 
-inline void vec2_scale_add(Vec2* const lhs, Vec2* const rhs, const float scale)
+inline void vec2_scale_compound_add(Vec2* const lhs, const Vec2* const rhs, const float scale)
 {
     lhs->x += rhs->x * scale;
     lhs->y += rhs->y * scale;
+}
+
+inline void vec2_compound_add(Vec2* const lhs, const Vec2* const rhs)
+{
+    lhs->x += rhs->x;
+    lhs->y += rhs->y;
+}
+
+inline void vec2_negate(Vec2* const dst, const Vec2* const src)
+{
+    dst->x = -src->x;
+    dst->y = -src->y;  
+}
+
+inline void vec2_set_zero(Vec2* const dst)
+{
+    std::memset(dst, 0, sizeof(Vec2));
 }
 
 inline void vec2_set_zero_n(Vec2* const dst, const int n)
@@ -169,42 +184,73 @@ void integrate_states_fixed_step(Vec2* positions, Vec2* velocities, Vec2* accele
         // f = m * a
         // a = f / m = f * inv_mass
         // v += a * dt
-        vec2_scale_add(velocities + i, acceleratons + i, dt);
+        vec2_scale_compound_add(velocities + i, acceleratons + i, dt);
 
         // x += v * dt
-        vec2_scale_add(positions + i, velocities + i, dt);
+        vec2_scale_compound_add(positions + i, velocities + i, dt);
     }
 }
 
-// void collide_points(Vec2* const positions, Vec2* const velocities, Vec2* const forces, const int src_id, const int dst_id)
-// {
-//     if (vec2_near(*(positions + src_id), *(positions + dst_id), 1e-1))
-//     {
-
-//     }
-// }
-
-inline bool cross_product(const Vec2* const a, const Vec2* const b, const Vec2* const c)
+inline float vec2_cross_product(const Vec2* const lhs, const Vec2* const rhs)
 {
-    return (a->x - c->x) * (b->y - c->y) - (a->y - c->y) * (b->x - c->x);
+    return (lhs->x * rhs->y) - (lhs->y * rhs->x);
 }
 
-inline bool point_within_aabb(const Vec2* const top, const Vec2* const bot, const Vec2* const point)
+inline bool vec2_line_segment_line_segment_intercept(
+    Vec2* intercept,
+    const Vec2* const p,
+    const Vec2* const p_head,
+    const Vec2* const q,
+    const Vec2* const q_head,
+    const float tolerance)
 {
-    return ((top->x <= point->x && point->x <= bot->x) ||
-            (bot->x <= point->x && point->x <= top->x)) &&
-           ((top->y <= point->y && point->y <= bot->y) ||
-            (bot->y <= point->y && point->y <= top->y));
+    const Vec2 r{p_head->x - p->x, p_head->y - p->y};
+    const Vec2 s{q_head->x - q->x, q_head->y - q->y};
+    const float r_cross_s = vec2_cross_product(&r, &s);
+
+    // Parallel case
+    if (std::abs(r_cross_s) < tolerance)
+    {
+        return false;
+    }
+
+    const Vec2 q_m_p{q->x - p->x, q->y - p->y};
+    const float q_m_p_cross_r = vec2_cross_product(&q_m_p, &r);
+    const float u = q_m_p_cross_r / r_cross_s;
+    const float t = vec2_cross_product(&q_m_p, &s) / r_cross_s;
+
+    // Intersection on segment
+    if (0 <= u && u <= 1 && 0 <= t && t <= 1)
+    {
+        intercept->x = p->x + t * r.x;
+        intercept->y = p->y + t * r.y;
+        return true;
+    }
+
+    // Intersection off segment
+    return false;
 }
 
-inline bool point_on_line(const Line* const line, const Vec2* const point)
+inline bool vec2_within_aabb(const Vec2* const top, const Vec2* const bot, const Vec2* const point, const float tolerance)
 {
-    return std::abs(cross_product(&line->tail, &line->head, point)) < 1e-3f;
+    const float min_x = std::fmin(top->x, bot->x);
+    const float min_y = std::fmin(top->y, bot->y);
+    const float max_x = std::fmax(top->x, bot->x);
+    const float max_y = std::fmax(top->y, bot->y);
+    return ((min_x - tolerance) < point->x && point->x < (max_x + tolerance)) &&
+           ((min_y - tolerance) < point->y && point->y < (max_y + tolerance));
 }
 
-inline bool point_on_line_segment(const Line* const line, const Vec2* const point)
+inline bool vec2_near_line(const Line* const line, const Vec2* const point, const float tolerance)
 {
-    return point_on_line(line, point) && point_within_aabb(&line->tail, &line->head, point);
+    const Vec2 lhs{line->head.x - line->tail.x, line->head.y - line->tail.y};
+    const Vec2 rhs{point->x - line->tail.x, point->y - line->tail.y};
+    return std::abs(vec2_cross_product(&lhs, &rhs)) < tolerance;
+}
+
+inline bool vec2_near_line_segment(const Line* const line, const Vec2* const point, const float tolerance)
+{
+    return vec2_near_line(line, point, tolerance) && vec2_within_aabb(&line->tail, &line->head, point, tolerance);
 }
 
 struct RenderPipelineData
@@ -293,7 +339,7 @@ void environment_initialize(Environment* const env, const int boundary_count)
 {
     env->boundaries = (Line*)std::malloc(sizeof(Line) * boundary_count);
     env->normals = (Vec2*)std::malloc(sizeof(Vec2) * boundary_count);
-    env->dampening = 0.95f;
+    env->dampening = 0.8f;
     env->gravity.x = 0.f;
     env->gravity.y = -1.f;
     env->n_active = 0;
@@ -329,6 +375,7 @@ struct ParticleState
 {
     Vec2* positions_previous;
     Vec2* positions;
+    Vec2* velocities_previous;
     Vec2* velocities;
     Vec2* forces;
     int n_active;
@@ -342,6 +389,9 @@ void particle_state_initialize(ParticleState* const ps, const int particle_count
 
     ps->positions = (Vec2*)std::malloc(sizeof(Vec2) * particle_count);
     vec2_set_zero_n(ps->positions, particle_count);
+
+    ps->velocities_previous = (Vec2*)std::malloc(sizeof(Vec2) * particle_count);
+    vec2_set_zero_n(ps->velocities_previous, particle_count);
 
     ps->velocities = (Vec2*)std::malloc(sizeof(Vec2) * particle_count);
     vec2_set_zero_n(ps->velocities, particle_count);
@@ -391,16 +441,41 @@ void particle_state_reset(ParticleState* const ps, const Environment* const env)
     vec2_set_n(ps->forces, &env->gravity, ps->n_active);
 }
 
+
 void particle_state_update(ParticleState* const ps, const Environment* const env, const float dt)
 {
     // Cache previous positions
     vec2_copy_n(ps->positions_previous, ps->positions, ps->n_active);
+    vec2_copy_n(ps->velocities_previous, ps->velocities, ps->n_active);
+
+    // Negative force to apply on contact
+    Vec2 negative_gravity;
+    vec2_negate(&negative_gravity, &env->gravity);
 
     // Divide by particle mass
     for (int i = 0; i < ps->n_active; ++i)
     {
         (ps->forces + i)->x /= 1.f;
         (ps->forces + i)->y /= 1.f;
+    }
+
+    // Collide points and environment lines
+    for (int i = 0; i < ps->n_active; ++i)
+    {
+        for (int l = 0; l < env->n_active; ++l)
+        {
+            if (vec2_near_line_segment(env->boundaries + l, ps->positions + i, dt))
+            {
+                vec2_reflect(ps->velocities + i, ps->velocities + i, env->normals + l);
+                vec2_scale(ps->velocities + i, env->dampening);
+
+                const float d = vec2_dot(env->normals + i, &env->gravity);
+                Vec2 projected_gravity = negative_gravity;
+                vec2_scale_compound_add(&projected_gravity, &env->gravity, d);
+                vec2_set(ps->forces + i, &projected_gravity);
+                break;
+            }
+        }
     }
 
     // Update point states
@@ -411,40 +486,128 @@ void particle_state_update(ParticleState* const ps, const Environment* const env
     {
         vec2_clamp(ps->positions + i, -BOUNDARY_LIMIT, +BOUNDARY_LIMIT);
     }
-
-    // Collide points and environment lines
-    for (int l = 0; l < env->n_active; ++l)
-    {
-        for (int i = 0; i < ps->n_active; ++i)
-        {
-            if (point_on_line_segment(env->boundaries + l, ps->positions + i))
-            {
-                vec2_reflect(ps->velocities + i, ps->velocities + i, env->normals + l);
-                vec2_scale(ps->velocities + i, env->dampening);
-            }
-        }
-    }
 }
 
 void particle_state_destroy(ParticleState* const ps)
 {
     std::free(ps->positions_previous);
     std::free(ps->positions);
+    std::free(ps->velocities_previous);
     std::free(ps->velocities);
     std::free(ps->forces);   
 }
 
-// Global key state
-bool space_is_pressed = false;
-
-// Look up key presses here
-void key_callback(GLFWwindow* window, int key, int scancode, int action, int mods)
+struct Planets
 {
-    if (key == GLFW_KEY_SPACE)
+    Vec2* positions;
+    float* masses;
+    int n_active;
+    int n_max;
+};
+
+void planets_initialize(Planets* const planets, const int planets_count)
+{
+    planets->positions = (Vec2*)std::malloc(sizeof(Vec2) * planets_count);
+    vec2_set_zero_n(planets->positions, planets_count);
+
+    planets->masses = (float*)std::malloc(sizeof(float) * planets_count);
+    std::memset(planets->masses, 0, sizeof(float) * planets_count);
+
+    planets->n_active = 0;
+    planets->n_max = planets_count;
+}
+
+void planets_spawn_at(Planets* const planets, const Vec2 position, const float mass)
+{
+    if (planets->n_active >= planets->n_max)
     {
-        space_is_pressed = true;
+        return;
+    }
+
+    // Initialize point state
+    vec2_set(planets->positions + planets->n_active, &position);
+
+    // Initialize mass
+    *(planets->masses + planets->n_active) = mass;
+
+    // Increment number of active particles
+    ++planets->n_active;
+}
+
+void planets_apply_to_particles(const Planets* const planets, ParticleState* const ps)
+{
+    // Calc pull of each planet on each particle; add results to forces
+    for (int i = 0; i < ps->n_active; ++i)
+    {
+        for (int p = 0; p < planets->n_active; ++p)
+        {
+            Vec2 force;
+            // Force is particle_position - planet_position
+            /* force.x = (ps.positions + i)->x - planet.x; */
+            /* force.y = (ps.positions + i)->y - planet.y; */
+            // Force is planet_position - particle_position
+            force.x = (planets->positions + p)->x - (ps->positions + i)->x;
+            force.y = (planets->positions + p)->y - (ps->positions + i)->y;
+
+            // Normalize the force
+            const float r = vec2_length_squared(&force);
+            if (r > 1e-4f)
+            {
+                const float m = *(planets->masses + p) / r;
+                force.x *= m;
+                force.y *= m;
+                (ps->forces + i)->x += force.x;
+                (ps->forces + i)->y += force.y;
+            }
+        }
     }
 }
+
+void planets_destroy(Planets* const planets)
+{
+    std::free(planets->positions);
+    std::free(planets->masses);
+}
+
+union Buttons
+{
+    struct BitField
+    {
+        uint64_t right_mouse_button : 1;
+        uint64_t left_mouse_button : 1;
+        uint64_t left_ctrl : 1;
+    };
+
+    BitField fields;
+    uint64_t mask;
+};
+
+struct UserInputState
+{
+    Buttons previous;
+    Buttons current;
+    Buttons pressed;
+    Buttons released;
+};
+
+void user_input_state_initialized(UserInputState* const state, GLFWwindow* const window)
+{
+    std::memset(&state->previous, 0, sizeof(Buttons));
+    std::memset(&state->current, 0, sizeof(Buttons));
+    std::memset(&state->pressed, 0, sizeof(Buttons));
+    std::memset(&state->released, 0, sizeof(Buttons));
+}
+
+void user_input_state_update(UserInputState* const state, GLFWwindow* const window)
+{
+    state->current.fields.right_mouse_button = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_RIGHT) == GLFW_PRESS;
+    state->current.fields.left_mouse_button = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS;
+    state->current.fields.left_ctrl = glfwGetKey(window, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS;
+    state->pressed.mask = (state->current.mask ^ state->previous.mask) & state->current.mask;
+    state->released.mask = (state->current.mask ^ state->previous.mask) & state->previous.mask;
+    std::memcpy(&state->previous, &state->current, sizeof(Buttons));  
+}
+
 
 int main(int, char**)
 {
@@ -531,40 +694,38 @@ int main(int, char**)
         Vec2{+0.5f * BOUNDARY_LIMIT, -0.5 * BOUNDARY_LIMIT}
     );
 
-    // Setup batch line buffers
+    static const int N_PLANETS_MAX = 10;
     static const int N_POINTS_MAX = 200000;
-    static const int N_POINTS_MAX_SPAWN = 1000;
 
     // Initialize particles
     ParticleState ps;
     particle_state_initialize(&ps, N_POINTS_MAX);
 
-    // Add some initial particles
-    particle_state_spawn_random(&ps, 100, -BOUNDARY_LIMIT, -BOUNDARY_LIMIT + 0.1f);
+    // Initial planets
+    Planets planets;
+    planets_initialize(&planets, N_PLANETS_MAX);
 
     // Initialize render data
     RenderPipelineData render_pipeline_data;
     render_pipeline_initialize(&render_pipeline_data);
 
+    // Update current used input states
+    UserInputState input_state;
+    user_input_state_initialized(&input_state, window);
+
     float point_size = 3.f;
-    int n_to_spawn = 1;
-
-    // Notify when a key is pressed
-    glfwSetKeyCallback(window, key_callback);
-
-    // Create one planet, offset from the center of the screen
-    // TODO: make planet position the mouse x,y
-    Vec2 planet{0.0f, 0.5f}; // position
-    /* Vec2 planet_pull; // force */
 
     // Main loop
     while (!glfwWindowShouldClose(window))
     {
-        particle_state_reset(&ps, &env);
-
         const float dt = ImGui::GetIO().DeltaTime;
 
+        particle_state_reset(&ps, &env);
+
         glfwPollEvents();
+
+        // Update game user input stuff first
+        user_input_state_update(&input_state, window);
 
         // Start the Dear ImGui frame
         ImGui_ImplOpenGL3_NewFrame();
@@ -572,44 +733,23 @@ int main(int, char**)
         ImGui::NewFrame();
 
         // Spawn particle on click of mouse
+        if (input_state.current.fields.left_ctrl && input_state.current.fields.left_mouse_button)
         {
-            const int left_button_pressed = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT);
-            const int right_button_pressed = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_RIGHT);
-            if (left_button_pressed == GLFW_PRESS || right_button_pressed == GLFW_PRESS)
-            {
-                // Spawn a particle where the mouse clicks
-                Vec2 p;
-                get_cursor_position_normalized(&p, window, display_w, display_h);
-                particle_state_spawn_at(&ps, p);
-            }
-            if (space_is_pressed) // Spawn a particle in the center of the screen
-            {
-                space_is_pressed = false;
-                Vec2 center{0.f, 0.f};
-                particle_state_spawn_at(&ps, center);
-            }
+            // Spawn a particle where the mouse clicks
+            Vec2 p;
+            get_cursor_position_normalized(&p, window, display_w, display_h);
+            particle_state_spawn_at(&ps, p);
+        }
+        else if (input_state.pressed.fields.left_mouse_button)
+        {
+            // Spawn a planet where the mouse clicks
+            Vec2 p;
+            get_cursor_position_normalized(&p, window, display_w, display_h);
+            planets_spawn_at(&planets, p, 1.f /*mass*/);
         }
 
-        // Update planet to be the mouse
-        get_cursor_position_normalized(&planet, window, display_w, display_h);
-        // Calc pull of each planet on each particle
-        // Add results to forces
-        for (int i = 0; i < ps.n_active; ++i)
-        {
-            Vec2 force;
-            // Force is particle_position - planet_position
-            /* force.x = (ps.positions + i)->x - planet.x; */
-            /* force.y = (ps.positions + i)->y - planet.y; */
-            // Force is planet_position - particle_position
-            force.x = planet.x - (ps.positions + i)->x;
-            force.y = planet.y - (ps.positions + i)->y;
-            const float d = std::sqrt(vec2_length_squared(&force));
-            // Normalize the force
-            force.x /= d;
-            force.y /= d;
-            (ps.forces + i)->x += force.x;
-            (ps.forces + i)->y += force.y;
-        }
+        // Apply planet gravity to particles
+        planets_apply_to_particles(&planets, &ps);
 
         // Do particle update
         particle_state_update(&ps, &env, dt);
@@ -623,11 +763,6 @@ int main(int, char**)
         if (ImGui::SliderFloat("point size", &point_size, 1.f, 20.f))
         {
             glPointSize(point_size);
-        }
-        ImGui::SliderInt("n spawns", &n_to_spawn, 1, N_POINTS_MAX_SPAWN);
-        if (ImGui::SmallButton("Spawn"))
-        {
-            particle_state_spawn_random(&ps, n_to_spawn, -BOUNDARY_LIMIT, -BOUNDARY_LIMIT + 0.1f);
         }
         ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
         ImGui::End();
@@ -659,6 +794,7 @@ int main(int, char**)
 
     // Cleanup game state
     render_pipeline_destroy(&render_pipeline_data);
+    planets_destroy(&planets);
     particle_state_destroy(&ps);
     environment_destroy(&env);
 
