@@ -68,6 +68,66 @@ void integrate(Vec2* positions, Vec2* velocities, Vec2* forces, int n, float dt)
     }
 }
 
+struct RenderPipelineData
+{
+    GLuint points_vba_id;
+    GLuint lines_vba_id;
+};
+
+void render_pipeline_initialize(RenderPipelineData* const r_data)
+{
+    glPointSize(3.f);
+
+    // Setup vertex buffer for points
+    glGenBuffers(1, &r_data->points_vba_id);
+    glBindBuffer(GL_ARRAY_BUFFER, r_data->points_vba_id);
+
+    // Setup vertex buffer for lines
+    glGenBuffers(1, &r_data->lines_vba_id);
+    glBindBuffer(GL_ARRAY_BUFFER, r_data->lines_vba_id);
+}
+
+void render_pipeline_destroy(RenderPipelineData* const r_data)
+{
+    glDeleteBuffers(1, &r_data->points_vba_id);
+    glDeleteBuffers(1, &r_data->lines_vba_id);
+}
+
+void render_pipeline_draw_points(RenderPipelineData* const r_data, const Vec2* const points, const int n_points)
+{
+    glBindBuffer(GL_ARRAY_BUFFER, r_data->points_vba_id);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(
+        0,                  // attribute 0. No particular reason for 0, but must match the layout in the shader.
+        2,                  // size
+        GL_FLOAT,           // type
+        GL_FALSE,           // normalized?
+        0,                  // stride
+        (void*)0            // array buffer offset
+    );
+    glBufferData(GL_ARRAY_BUFFER, n_points * sizeof(Vec2), points, GL_DYNAMIC_DRAW);
+    glDrawArrays(GL_POINTS, 0, n_points);
+}
+
+void render_pipeline_draw_lines(RenderPipelineData* const r_data, const Line* const lines, const int n_lines)
+{
+    // TODO(optimization) environment data need only be uploaded once, so glBufferData is redundant on
+    //                    each update. Make a separate upload function and call on loop entry, or keep things
+    //                    this way if the environment is to be dynamic
+    glBindBuffer(GL_ARRAY_BUFFER, r_data->lines_vba_id);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(
+        0,                  // attribute 0. No particular reason for 0, but must match the layout in the shader.
+        2,                  // size
+        GL_FLOAT,           // type
+        GL_FALSE,           // normalized?
+        0,                  // stride
+        (void*)0            // array buffer offset
+    );
+    glBufferData(GL_ARRAY_BUFFER, n_lines * sizeof(Line), lines, GL_DYNAMIC_DRAW);
+    glDrawArrays(GL_LINES, 0, 2 * n_lines);
+}
+
 int main(int, char**)
 {
     // Setup window
@@ -125,14 +185,15 @@ int main(int, char**)
     ImGui_ImplGlfw_InitForOpenGL(window, true);
     ImGui_ImplOpenGL3_Init(glsl_version);
 
-    // Our state
-    bool show_demo_window = true;
-
-    static const int N_LINES = 1;
-    static const Line environment[N_LINES] = {
+    static const int N_ENVIRONMENT_LINES = 2;
+    static const Line environment[N_ENVIRONMENT_LINES] = {
         Line{
-            Vec2{-1.f, -1.f},
-            Vec2{+1.f, -1.f}
+            Vec2{-1.0f, -1.0f},
+            Vec2{+1.0f, -1.0f}
+        },
+        Line{
+            Vec2{-0.5f, -0.5f},
+            Vec2{+0.5f, +0.5f}
         }
     };
 
@@ -143,7 +204,7 @@ int main(int, char**)
     const int N_POINTS_DRAWN = 2;
 
     Vec2 positions[N_POINTS] = {
-        Vec2{0.0f,  0.0f},
+        Vec2{0.0f,  0.4f},
         Vec2{0.0f,  0.2f}
     };
 
@@ -157,17 +218,10 @@ int main(int, char**)
         Vec2{0.0f, 0.0f}
     };
 
-    GLuint vertexbuffer_id;
-    glGenBuffers(1, &vertexbuffer_id);
-    glBindBuffer(GL_ARRAY_BUFFER, vertexbuffer_id);
-    glVertexAttribPointer(
-        0,                  // attribute 0. No particular reason for 0, but must match the layout in the shader.
-        2,                  // size
-        GL_FLOAT,           // type
-        GL_FALSE,           // normalized?
-        0,                  // stride
-        (void*)0            // array buffer offset
-    );
+
+    RenderPipelineData render_pipeline_data;
+    render_pipeline_initialize(&render_pipeline_data);
+
 
     velocities[1].y = 0.2f;
 
@@ -188,14 +242,12 @@ int main(int, char**)
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
 
-        if (show_demo_window)
-            ImGui::ShowDemoWindow(&show_demo_window);
-
         integrate(positions, velocities, forces, N_POINTS_DRAWN, dt);
 
         // Create a window called "Hello, world!" and append into it.
         ImGui::Begin("Hello, world!");
-
+        ImGui::Text("Points VBO : (%d)", render_pipeline_data.points_vba_id);
+        ImGui::Text("Lines VBO  : (%d)", render_pipeline_data.lines_vba_id);
         ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
         ImGui::End();
 
@@ -204,14 +256,12 @@ int main(int, char**)
         int display_w, display_h;
         glfwGetFramebufferSize(window, &display_w, &display_h);
         glViewport(0, 0, display_w, display_h);
+        glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT);
 
         // Draw lines to screen
-        glEnableVertexAttribArray(0);
-        glBindBuffer(GL_ARRAY_BUFFER, vertexbuffer_id);
-        glBufferData(GL_ARRAY_BUFFER, N_POINTS_DRAWN * sizeof(Vec2), positions, GL_DYNAMIC_DRAW);
-        glDrawArrays(GL_LINES, 0, N_POINTS_DRAWN);
-        glDisableVertexAttribArray(0);
+        render_pipeline_draw_points(&render_pipeline_data, positions, N_POINTS_DRAWN);
+        render_pipeline_draw_lines(&render_pipeline_data, environment, N_ENVIRONMENT_LINES);
 
         // Draw imgui stuff to screen
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
@@ -228,7 +278,7 @@ int main(int, char**)
     glfwTerminate();
 
     // Cleanup VBO
-    glDeleteBuffers(1, &vertexbuffer_id);
+    render_pipeline_destroy(&render_pipeline_data);
 
     return 0;
 }
