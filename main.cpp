@@ -119,7 +119,7 @@ struct Particles
     float max_velocity;
 };
 
-void particle_state_initialize(Particles* const ps, const int particle_count)
+void particles_initialize(Particles* const ps, const int particle_count)
 {
     ps->positions_previous = (Vec2*)std::malloc(sizeof(Vec2) * particle_count);
     vec2_set_zero_n(ps->positions_previous, particle_count);
@@ -141,7 +141,7 @@ void particle_state_initialize(Particles* const ps, const int particle_count)
     ps->max_velocity = 1;
 }
 
-void particle_state_spawn_random(Particles* const ps, int n_spawn, const float y_min, const float y_max)
+void particles_spawn_random(Particles* const ps, int n_spawn, const float y_min, const float y_max)
 {
     // Clamp number of points to spawn to max allocated
     n_spawn = imin(ps->n_max - ps->n_active, n_spawn);
@@ -160,7 +160,7 @@ void particle_state_spawn_random(Particles* const ps, int n_spawn, const float y
     }
 }
 
-void particle_state_spawn_at(Particles* const ps, const Vec2 position)
+void particles_spawn_at(Particles* const ps, const Vec2 position)
 {
     if (ps->n_active >= ps->n_max)
     {
@@ -174,13 +174,17 @@ void particle_state_spawn_at(Particles* const ps, const Vec2 position)
     ++ps->n_active;
 }
 
-void particle_state_reset(Particles* const ps, const Environment* const env)
+void particles_clear(Particles* const ps)
+{
+    ps->n_active = 0;
+}
+
+void particles_reset_on_loop(Particles* const ps, const Environment* const env)
 {
     vec2_set_n(ps->forces, &env->gravity, ps->n_active);
 }
 
-
-void particle_state_update(Particles* const ps, const Environment* const env, const float dt)
+void particles_update(Particles* const ps, const Environment* const env, const float dt)
 {
     // Cache previous positions
     vec2_copy_n(ps->positions_previous, ps->positions, ps->n_active);
@@ -231,7 +235,7 @@ void particle_state_update(Particles* const ps, const Environment* const env, co
     }
 }
 
-void particle_state_destroy(Particles* const ps)
+void particles_destroy(Particles* const ps)
 {
     std::free(ps->positions_previous);
     std::free(ps->positions);
@@ -522,7 +526,7 @@ int main(int, char**)
 
     // Initialize particles
     Particles particles;
-    particle_state_initialize(&particles, N_POINTS_MAX);
+    particles_initialize(&particles, N_POINTS_MAX);
 
     // Initial planets
     Planets planets;
@@ -543,7 +547,7 @@ int main(int, char**)
     {
         const float dt = ImGui::GetIO().DeltaTime;
 
-        particle_state_reset(&particles, &env);
+        particles_reset_on_loop(&particles, &env);
 
         glfwPollEvents();
 
@@ -561,7 +565,7 @@ int main(int, char**)
             // Spawn a particle where the mouse clicks
             Vec2 p;
             get_cursor_position_normalized(&p, window, display_w, display_h);
-            particle_state_spawn_at(&particles, p);
+            particles_spawn_at(&particles, p);
         }
         else if (input_state.pressed.fields.left_mouse_button)
         {
@@ -575,11 +579,11 @@ int main(int, char**)
         planets_apply_to_particles(&planets, &particles);
 
         // Do particle update
-        particle_state_update(&particles, &env, dt);
+        particles_update(&particles, &env, dt);
 
         // Create a window called "Hello, world!" and append into it.
         ImGui::Begin("Debug stuff");
-        ImGui::Text("Points : (%d)", particles.n_active);
+        ImGui::Text("Particles  : (%d)", particles.n_active);
         ImGui::Text("Boundaries : (%d)", env.n_active);
         ImGui::InputFloat2("gravity", (float*)(&env.gravity));
         ImGui::SliderFloat("dampening", &env.dampening, 0.1f, 1.f);
@@ -587,6 +591,10 @@ int main(int, char**)
         if (ImGui::SliderFloat("point size", &point_size, 1.f, 20.f))
         {
             glPointSize(point_size);
+        }
+        if (ImGui::SmallButton("Clear particles"))
+        {
+            particles_clear(&particles);
         }
         ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
         ImGui::End();
@@ -623,7 +631,7 @@ int main(int, char**)
     // Cleanup game state
     render_pipeline_destroy(&render_pipeline_data);
     planets_destroy(&planets);
-    particle_state_destroy(&particles);
+    particles_destroy(&particles);
     environment_destroy(&env);
 
     return 0;
