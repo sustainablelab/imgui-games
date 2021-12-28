@@ -1,3 +1,4 @@
+#include <assert.h>
 #include "imgui.h"
 #include "imgui_impl_glfw.h"
 #include "imgui_impl_opengl3.h"
@@ -615,7 +616,23 @@ void user_input_state_update(UserInputState* const state, GLFWwindow* const wind
     std::memcpy(&state->previous, &state->current, sizeof(Buttons));  
 }
 
-
+// ERROR ERROR
+void GLAPIENTRY
+MessageCallback( GLenum source,
+                 GLenum type,
+                 GLuint id,
+                 GLenum severity,
+                 GLsizei length,
+                 const GLchar* message,
+                 const void* userParam )
+{
+    ImGui::Begin("OpenGL Error Place");
+    ImGui::Text("GL CALLBACK: %s type = 0x%x, severity = 0x%x, message = %s\n",
+           ( type == GL_DEBUG_TYPE_ERROR ? "** GL ERROR **" : "" ),
+            type, severity, message
+            );
+    ImGui::End();
+}
 int main(int, char**)
 {
     // Setup window
@@ -627,8 +644,8 @@ int main(int, char**)
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 0);
 
-    int small = 600;
-    int display_w = small, display_h = small;
+    int small = 650;
+    int display_w = 1000, display_h = small;
 
     // Create window with graphics context
     GLFWwindow* window = glfwCreateWindow(
@@ -645,8 +662,14 @@ int main(int, char**)
     glfwSwapInterval(1); // Enable vsync
 
 #if defined(BOB)
+    glewExperimental = true;
     glewInit();
 #endif
+
+    // ERROR ERROR
+    // During init, enable debug output
+    glEnable              ( GL_DEBUG_OUTPUT );
+    glDebugMessageCallback( MessageCallback, 0 );
 
     // Setup Dear ImGui context
     IMGUI_CHECKVERSION();
@@ -722,6 +745,33 @@ int main(int, char**)
 
     float point_size = 3.f;
 
+
+    // Render SETUP
+    // Render the game to a texture (IMGUI displays this image in a window)
+    unsigned int fbo;
+    glGenFramebuffers(1, &fbo);
+    glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+
+    GLuint TOF;
+    glGenTextures(1, &TOF);
+    glBindTexture(GL_TEXTURE_2D, TOF);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, 600, 600, 0, GL_RGB, GL_UNSIGNED_BYTE, NULL);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+
+    // Set "TOF" as our colour attachement #0
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, TOF, 0);
+
+    // Render buffer???
+    unsigned int rbo;
+    glGenRenderbuffers(1, &rbo);
+    glBindRenderbuffer(GL_RENDERBUFFER, rbo);
+    glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, 600, 600); // use a single renderbuffer object for both a depth AND stencil buffer.
+    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, rbo); // now actually attach it
+
+    assert(glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE);
+    // Render SETUP done
+
     // Main loop
     while (!glfwWindowShouldClose(window))
     {
@@ -738,6 +788,10 @@ int main(int, char**)
         ImGui_ImplOpenGL3_NewFrame();
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
+
+        // See OpenGL error callback
+        ImGui::Begin("OpenGL Error Place");
+        ImGui::End();
 
         // Spawn particle on click of mouse
         if (input_state.current.fields.left_ctrl && input_state.current.fields.left_mouse_button)
@@ -775,19 +829,36 @@ int main(int, char**)
         ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
         ImGui::End();
 
-        // TODO:
-        // Render the game to a texture (IMGUI displays this image in a window)
-
-        // Rendering
-        ImGui::Render();
-        glfwGetFramebufferSize(window, &display_w, &display_h);
-        glViewport(0, 0, display_w, display_h);
-        glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-        glClear(GL_COLOR_BUFFER_BIT);
+        glBindFramebuffer(GL_FRAMEBUFFER, fbo);
 
         // Draw lines to screen
         render_pipeline_draw_points(&render_pipeline_data, ps.positions, ps.n_active);
         render_pipeline_draw_lines(&render_pipeline_data, env.boundaries, env.n_active);
+
+        // Create a window to draw game stuff into
+        ImGui::Begin("Me game");
+        /* ImGui::Image( */
+        /*         ImTextureID user_texture_id, */
+        /*         const ImVec2& size, */
+        /*         const ImVec2& uv0 = ImVec2(0, 0), */
+        /*         const ImVec2& uv1 = ImVec2(1,1), */
+        /*         const ImVec4& tint_col = ImVec4(1,1,1,1), */
+        /*         const ImVec4& border_col = ImVec4(0,0,0,0) */
+        /*         ); */
+        ImGui::Image(
+                (ImTextureID)&TOF, // user_texture_id,
+                ImVec2{500,500} // const ImVec2& size
+                );
+        ImGui::End();
+
+
+        // Rendering
+        ImGui::Render();
+        glfwGetFramebufferSize(window, &display_w, &display_h);
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        glViewport(0, 0, display_w, display_h);
+        glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+        glClear(GL_COLOR_BUFFER_BIT);
 
         // Draw imgui stuff to screen
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
@@ -800,6 +871,10 @@ int main(int, char**)
     ImGui_ImplGlfw_Shutdown();
     ImGui::DestroyContext();
 
+    // Maybe this is a good idea
+    glDeleteFramebuffers(1, &fbo);
+    glDeleteTextures(1, &TOF);
+
     glfwDestroyWindow(window);
     glfwTerminate();
 
@@ -808,6 +883,7 @@ int main(int, char**)
     planets_destroy(&planets);
     particle_state_destroy(&ps);
     environment_destroy(&env);
+
 
     return 0;
 }
