@@ -601,8 +601,15 @@ int main(int, char**)
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
 
+        ImGui::Begin("Debug stuff");
+
+        // Don't allow game interation if the debug planel is hovered
+        if (ImGui::IsWindowHovered())
+        {
+            // TRAP
+        }
         // Spawn single particle on click
-        if (input_state.current.fields.left_ctrl && input_state.pressed.fields.left_mouse_button)
+        else if (input_state.current.fields.left_ctrl && input_state.pressed.fields.left_mouse_button)
         {
             Vec2 p;
             get_cursor_position_normalized(&p, window, display_w, display_h);
@@ -632,7 +639,6 @@ int main(int, char**)
         particles_update(&particles, &env, dt);
 
         // Create a window called "Hello, world!" and append into it.
-        ImGui::Begin("Debug stuff");
         ImGui::Text("Particles  : (%d)", particles.n_active);
         ImGui::Text("Boundaries : (%d)", env.n_boundaries);
         ImGui::InputFloat2("gravity", (float*)(&env.gravity));
