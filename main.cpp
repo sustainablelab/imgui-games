@@ -64,7 +64,7 @@ struct Environment
 {
     Line* boundaries;
     Vec2* normals;
-    int n_active;
+    int n_boundaries;
     int n_max;
 
     float boundary_thickness;
@@ -80,14 +80,14 @@ void environment_initialize(Environment* const env, const int boundary_count)
     env->gravity.x = 0.f;
     env->gravity.y = -1.f;
     env->boundary_thickness = 1e-3f;
-    env->n_active = 0;
+    env->n_boundaries = 0;
     env->n_max = boundary_count;
 }
 
 void environment_add_boundary(Environment* const env, const Vec2 tail, const Vec2 head)
 {
     // Don't add anything if we are already at/over the max allocated boundary count
-    if (env->n_active >= env->n_max)
+    if (env->n_boundaries >= env->n_max)
     {
         return;
     }
@@ -95,20 +95,38 @@ void environment_add_boundary(Environment* const env, const Vec2 tail, const Vec
     // Add boundary points
     if (tail.x < head.x)
     {
-        (env->boundaries + env->n_active)->tail = tail;
-        (env->boundaries + env->n_active)->head = head;
+        (env->boundaries + env->n_boundaries)->tail = tail;
+        (env->boundaries + env->n_boundaries)->head = head;
     }
     else
     {
-        (env->boundaries + env->n_active)->tail = head;
-        (env->boundaries + env->n_active)->head = tail;
+        (env->boundaries + env->n_boundaries)->tail = head;
+        (env->boundaries + env->n_boundaries)->head = tail;
     }
 
     // Compute normal for boundary
-    *(env->normals + env->n_active) = line_to_normal(env->boundaries + env->n_active);
+    *(env->normals + env->n_boundaries) = line_to_normal(env->boundaries + env->n_boundaries);
 
     // Count new boundary
-    ++env->n_active;
+    ++env->n_boundaries;
+}
+
+bool environment_is_boundary_between(const Environment* const env, const Vec2* const start, const Vec2* const end)
+{
+    // TODO(enhancment) only check intercept on nearby boundary lines
+    for (int l = 0; l < env->n_boundaries; ++l)
+    {
+        if (vec2_segment_segment_intercept_check(
+            &(env->boundaries + l)->tail,
+            &(env->boundaries + l)->head,
+            start,
+            end
+        ))
+        {
+            return true;
+        }
+    }
+    return false;
 }
 
 void environment_destroy(Environment* const env)
@@ -148,7 +166,12 @@ void particles_initialize(Particles* const ps, const int particle_count)
 
     ps->n_active = 0;
     ps->n_max = particle_count;
+<<<<<<< HEAD
     ps->max_velocity = 1;
+=======
+
+    ps->max_velocity = 1.f;
+>>>>>>> 1e59df2... Adds experimental "no-force" boundaries
 }
 
 void particles_spawn_at(Particles* const ps, const Vec2 position)
@@ -195,7 +218,7 @@ void particles_update(Particles* const ps, const Environment* const env, const f
     for (int i = 0; i < ps->n_active; ++i)
     {
         // TODO(enhancement) limit search to nearby boundaries
-        for (int l = 0; l < env->n_active; ++l)
+        for (int l = 0; l < env->n_boundaries; ++l)
         {
             // Particle shot through boundary
             Vec2 intercept_result;
@@ -204,8 +227,7 @@ void particles_update(Particles* const ps, const Environment* const env, const f
                 (ps->positions + i),
                 (ps->positions_previous + i),
                 &(env->boundaries + l)->tail,
-                &(env->boundaries + l)->head,
-                env->boundary_thickness
+                &(env->boundaries + l)->head
             ))
             {
                 // Set new location to intercept point
@@ -241,10 +263,17 @@ void particles_update(Particles* const ps, const Environment* const env, const f
         }
     }
 
+<<<<<<< HEAD
     // Apply hard limits on velocities
     for (int i = 0; i < ps->n_active; ++i)
     {
         vec2_clamp(ps->velocities + i, -(ps->max_velocity), ps->max_velocity);
+=======
+    // Apply hard screen limits on velocity
+    for (int i = 0; i < ps->n_active; ++i)
+    {
+        vec2_clamp(ps->velocities + i, -ps->max_velocity, ps->max_velocity);
+>>>>>>> 1e59df2... Adds experimental "no-force" boundaries
     }
 
     // Apply hard screen limits on position
@@ -302,7 +331,7 @@ void planets_spawn_at(Planets* const planets, const Vec2 position, const float m
     ++planets->n_active;
 }
 
-void planets_apply_to_particles(const Planets* const planets, Particles* const ps)
+void planets_apply_to_particles(const Planets* const planets, const Environment* const env, Particles* const ps)
 {
     // Calc pull of each planet on each particle; add results to forces
     for (int i = 0; i < ps->n_active; ++i)
@@ -461,7 +490,7 @@ void render_pipeline_draw_particles(RenderPipelineData* const r_data, const Part
 
 void render_pipeline_draw_environment(RenderPipelineData* const r_data, const Environment* const env)
 {
-    render_pipeline_draw_lines(r_data->environment_vba_id, env->boundaries, env->n_active);
+    render_pipeline_draw_lines(r_data->environment_vba_id, env->boundaries, env->n_boundaries);
 }
 
 int main(int, char**)
@@ -608,7 +637,7 @@ int main(int, char**)
         }
 
         // Apply planet gravity to particles
-        planets_apply_to_particles(&planets, &particles);
+        planets_apply_to_particles(&planets, &env, &particles);
 
         // Do particle update
         particles_update(&particles, &env, dt);
@@ -616,10 +645,10 @@ int main(int, char**)
         // Create a window called "Hello, world!" and append into it.
         ImGui::Begin("Debug stuff");
         ImGui::Text("Particles  : (%d)", particles.n_active);
-        ImGui::Text("Boundaries : (%d)", env.n_active);
+        ImGui::Text("Boundaries : (%d)", env.n_boundaries);
         ImGui::InputFloat2("gravity", (float*)(&env.gravity));
         ImGui::SliderFloat("dampening", &env.dampening, 0.1f, 1.f);
-        ImGui::SliderFloat("Max Velocity", &ps.max_velocity, 0.5f, 5.0f);
+        ImGui::SliderFloat("max_velocity", &particles.max_velocity, 0.5f, 5.f);
         if (ImGui::SliderFloat("point size", &point_size, 1.f, 20.f))
         {
             glPointSize(point_size);

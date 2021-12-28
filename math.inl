@@ -171,30 +171,51 @@ inline bool vec2_segment_segment_intercept(
     const Vec2* const p,
     const Vec2* const p_head,
     const Vec2* const q,
-    const Vec2* const q_head,
-    const float tolerance)
+    const Vec2* const q_head)
 {
     const Vec2 r{p_head->x - p->x, p_head->y - p->y};
     const Vec2 s{q_head->x - q->x, q_head->y - q->y};
     const float r_cross_s = vec2_cross_product(&r, &s);
 
     // Parallel case
-    if (std::abs(r_cross_s) < tolerance)
+    if (std::abs(r_cross_s) > 0.f)
     {
-        return false;
+      const Vec2 q_m_p{q->x - p->x, q->y - p->y};
+      const float q_m_p_cross_r = vec2_cross_product(&q_m_p, &r);
+      const float u = q_m_p_cross_r / r_cross_s;
+      const float t = vec2_cross_product(&q_m_p, &s) / r_cross_s;
+
+      // Intersection on segment
+      if (0 <= u && u <= 1 && 0 <= t && t <= 1)
+      {
+          intercept->x = p->x + t * r.x;
+          intercept->y = p->y + t * r.y;
+          return true;
+      }
     }
 
-    const Vec2 q_m_p{q->x - p->x, q->y - p->y};
-    const float q_m_p_cross_r = vec2_cross_product(&q_m_p, &r);
-    const float u = q_m_p_cross_r / r_cross_s;
-    const float t = vec2_cross_product(&q_m_p, &s) / r_cross_s;
+    // Intersection off segment
+    return false;
+}
 
-    // Intersection on segment
-    if (0 <= u && u <= 1 && 0 <= t && t <= 1)
+inline bool vec2_segment_segment_intercept_check(
+    const Vec2* const p,
+    const Vec2* const p_head,
+    const Vec2* const q,
+    const Vec2* const q_head)
+{
+    const Vec2 r{p_head->x - p->x, p_head->y - p->y};
+    const Vec2 s{q_head->x - q->x, q_head->y - q->y};
+    const float r_cross_s = vec2_cross_product(&r, &s);
+
+    // Parallel case
+    if (std::abs(r_cross_s) > 0.f)
     {
-        intercept->x = p->x + t * r.x;
-        intercept->y = p->y + t * r.y;
-        return true;
+      const Vec2 q_m_p{q->x - p->x, q->y - p->y};
+      const float q_m_p_cross_r = vec2_cross_product(&q_m_p, &r);
+      const float u = q_m_p_cross_r / r_cross_s;
+      const float t = vec2_cross_product(&q_m_p, &s) / r_cross_s;
+      return 0 <= u && u <= 1 && 0 <= t && t <= 1;
     }
 
     // Intersection off segment
