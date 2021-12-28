@@ -30,6 +30,11 @@ struct Line
 };
 
 
+inline Vec2 vec2_sub(const Vec2* const lhs, const Vec2* const rhs)
+{
+    return Vec2{lhs->x - rhs->x, lhs->y - rhs->y};
+}
+
 inline void vec2_scale_compound_add(Vec2* const lhs, const Vec2* const rhs, const float scale)
 {
     lhs->x += rhs->x * scale;
@@ -45,7 +50,7 @@ inline void vec2_compound_add(Vec2* const lhs, const Vec2* const rhs)
 inline void vec2_negate(Vec2* const dst, const Vec2* const src)
 {
     dst->x = -src->x;
-    dst->y = -src->y;  
+    dst->y = -src->y;
 }
 
 inline void vec2_set_zero(Vec2* const dst)
@@ -102,6 +107,12 @@ inline float vec2_dot(const Vec2* const lhs, const Vec2* const rhs)
     return lhs->x * rhs->x + lhs->y * rhs->y;
 }
 
+inline Vec2 vec2_lerp(const Vec2* const lhs, const Vec2* const rhs, const float alpha)
+{
+    const float beta = 1.f - alpha;
+    return Vec2{lhs->x * alpha + rhs->x * beta, lhs->y * alpha + rhs->y * beta};
+}
+
 inline float vec2_length_squared(Vec2* const src)
 {
     return vec2_dot(src, src);
@@ -142,12 +153,20 @@ inline void vec2_reflect(Vec2* const r, const Vec2* const d, const Vec2* const n
     r->y = d->y - 2.f * dot_dn * n->y;
 }
 
+inline void vec2_project(Vec2* const r, const Vec2* const d, const Vec2* const n)
+{
+    // r = dot(d, n) * n
+    const float dot_dn = vec2_dot(d, n);
+    r->x = dot_dn * n->x;
+    r->y = dot_dn * n->y;
+}
+
 inline float vec2_cross_product(const Vec2* const lhs, const Vec2* const rhs)
 {
     return (lhs->x * rhs->y) - (lhs->y * rhs->x);
 }
 
-inline bool vec2_line_segment_line_segment_intercept(
+inline bool vec2_segment_segment_intercept(
     Vec2* intercept,
     const Vec2* const p,
     const Vec2* const p_head,
@@ -194,14 +213,47 @@ inline bool vec2_within_aabb(const Vec2* const top, const Vec2* const bot, const
 
 inline bool vec2_near_line(const Line* const line, const Vec2* const point, const float tolerance)
 {
-    const Vec2 lhs{line->head.x - line->tail.x, line->head.y - line->tail.y};
-    const Vec2 rhs{point->x - line->tail.x, point->y - line->tail.y};
-    return std::abs(vec2_cross_product(&lhs, &rhs)) < tolerance;
+    // Rearrangement of:
+    //
+    // d_perp = | (head.x - tail.x) * (tail.y - point.y) - (tail.x - point.x) * (head.y - tail.y) |  < tolerance
+    //          -----------------------------------------------------------------------------------
+    //                          sqrt((head.x - tail.x) ^ 2 + (head.y - tail.y) ^ 2)
+    //
+    const float dx_ht = line->head.x - line->tail.x;
+    const float dy_ht = line->head.y - line->tail.y;
+    const float dx_tp = line->tail.x - point->x;
+    const float dy_tp = line->tail.y - point->y;
+    const float num = dx_ht * dy_tp - dx_tp * dy_ht;
+    const float den_sq = dx_ht * dx_ht + dy_ht * dy_ht;
+    return (num * num) < (tolerance * tolerance) * den_sq;
 }
 
-inline bool vec2_near_line_segment(const Line* const line, const Vec2* const point, const float tolerance)
+inline bool vec2_near_segment(const Line* const line, const Vec2* const point, const float tolerance)
 {
-    return vec2_near_line(line, point, tolerance) && vec2_within_aabb(&line->tail, &line->head, point, tolerance);
+    return vec2_near_line(line, point, tolerance) &&
+           ((point->x > line->tail.x && point->x < line->head.x) ||
+            (point->x > line->head.x && point->x < line->tail.x));
+}
+
+// Same as vec2_near_line, but uses pre-computed normal vector associated with line
+inline bool vec2_near_line_with_normal(const Line* const line, const Vec2* const normal, const Vec2* const point, const float tolerance)
+{
+    const Vec2 r{line->tail.x - point->x, line->tail.y - point->y};
+    return std::abs(vec2_dot(normal, &r)) < tolerance;
+}
+
+// Same as vec2_near_segment, but uses pre-computed normal vector associated with line
+inline bool vec2_near_segment_with_normal(const Line* const line, const Vec2* const normal, const Vec2* const point, const float tolerance)
+{
+    return vec2_near_line_with_normal(line, normal, point, tolerance) &&
+           ((point->x > line->tail.x && point->x < line->head.x) ||
+            (point->x > line->head.x && point->x < line->tail.x));
+}
+
+inline bool vec2_above_line_with_normal(const Line* const line, const Vec2* const normal, const Vec2* const point)
+{
+    Vec2 r{vec2_sub(point, &line->tail)};
+    return vec2_dot(normal, &r) > 0.f;
 }
 
 inline Vec2 line_to_normal(const Line* const line)

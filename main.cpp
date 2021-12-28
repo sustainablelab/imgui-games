@@ -67,6 +67,7 @@ struct Environment
     int n_active;
     int n_max;
 
+    float boundary_thickness;
     float dampening;
     Vec2 gravity;
 };
@@ -78,6 +79,7 @@ void environment_initialize(Environment* const env, const int boundary_count)
     env->dampening = 0.8f;
     env->gravity.x = 0.f;
     env->gravity.y = -1.f;
+    env->boundary_thickness = 1e-3f;
     env->n_active = 0;
     env->n_max = boundary_count;
 }
@@ -91,8 +93,16 @@ void environment_add_boundary(Environment* const env, const Vec2 tail, const Vec
     }
 
     // Add boundary points
-    (env->boundaries + env->n_active)->tail = tail;
-    (env->boundaries + env->n_active)->head = head;
+    if (tail.x < head.x)
+    {
+        (env->boundaries + env->n_active)->tail = tail;
+        (env->boundaries + env->n_active)->head = head;
+    }
+    else
+    {
+        (env->boundaries + env->n_active)->tail = head;
+        (env->boundaries + env->n_active)->head = tail;
+    }
 
     // Compute normal for boundary
     *(env->normals + env->n_active) = line_to_normal(env->boundaries + env->n_active);
@@ -177,33 +187,66 @@ void particles_update(Particles* const ps, const Environment* const env, const f
         (ps->forces + i)->y /= 1.f;
     }
 
+    // Update point states BEFORE collision resolution to figure out
+    // where points will be next as if they hadn't collided
+    integrate_states_fixed_step(ps->positions, ps->velocities, ps->forces, ps->n_active, dt);
+
     // Collide points and environment lines
     for (int i = 0; i < ps->n_active; ++i)
     {
+        // TODO(enhancement) limit search to nearby boundaries
         for (int l = 0; l < env->n_active; ++l)
         {
-            if (vec2_near_line_segment(env->boundaries + l, ps->positions + i, dt))
+            // Particle shot through boundary
+            Vec2 intercept_result;
+            if (vec2_segment_segment_intercept(
+                &intercept_result,
+                (ps->positions + i),
+                (ps->positions_previous + i),
+                &(env->boundaries + l)->tail,
+                &(env->boundaries + l)->head,
+                env->boundary_thickness
+            ))
             {
+                // Set new location to intercept point
+                vec2_set(ps->positions + i, &intercept_result);
+
+                // Offset to a bit above the intercept point if comming from above
+                if (vec2_above_line_with_normal(env->boundaries + l, env->normals + l, ps->positions_previous + i))
+                {
+                    vec2_scale_compound_add(ps->positions + i, env->normals + l, env->boundary_thickness);
+                }
+                // Offset to a bit below the intercept point if comming from below
+                else
+                {
+                    vec2_scale_compound_add(ps->positions + i, env->normals + l, -env->boundary_thickness);
+                }
+
+                // Reflect and dampen velocity vector
                 vec2_reflect(ps->velocities + i, ps->velocities + i, env->normals + l);
                 vec2_scale(ps->velocities + i, env->dampening);
+                break;
+            }
+            // Particle right above boundary
+            else if (vec2_near_segment_with_normal(env->boundaries + l, env->normals + l, ps->positions + i, env->boundary_thickness))
+            {
+                // Set new location as last location
+                vec2_set(ps->positions + i, ps->positions_previous + i);
 
-                const float d = vec2_dot(env->normals + i, &env->gravity);
-                Vec2 projected_gravity = negative_gravity;
-                vec2_scale_compound_add(&projected_gravity, &env->gravity, d);
-                vec2_set(ps->forces + i, &projected_gravity);
+                // Reflect and dampen velocity vector
+                vec2_reflect(ps->velocities + i, ps->velocities + i, env->normals + l);
+                vec2_scale(ps->velocities + i, env->dampening);
                 break;
             }
         }
     }
-
-    // Update point states
-    integrate_states_fixed_step(ps->positions, ps->velocities, ps->forces, ps->n_active, dt);
 
     // Apply hard limits on velocities
     for (int i = 0; i < ps->n_active; ++i)
     {
         vec2_clamp(ps->velocities + i, -(ps->max_velocity), ps->max_velocity);
     }
+
     // Apply hard screen limits on position
     for (int i = 0; i < ps->n_active; ++i)
     {
@@ -306,6 +349,7 @@ union Buttons
         uint64_t right_mouse_button : 1;
         uint64_t left_mouse_button : 1;
         uint64_t left_ctrl : 1;
+        uint64_t left_shift : 1;
     };
 
     BitField fields;
@@ -333,6 +377,7 @@ void user_input_state_update(UserInputState* const state, GLFWwindow* const wind
     state->current.fields.right_mouse_button = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_RIGHT) == GLFW_PRESS;
     state->current.fields.left_mouse_button = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS;
     state->current.fields.left_ctrl = glfwGetKey(window, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS;
+    state->current.fields.left_shift = glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS;
     state->pressed.mask = (state->current.mask ^ state->previous.mask) & state->current.mask;
     state->released.mask = (state->current.mask ^ state->previous.mask) & state->previous.mask;
     std::memcpy(&state->previous, &state->current, sizeof(Buttons));  
@@ -540,20 +585,26 @@ int main(int, char**)
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
 
-        // Spawn particle on click of mouse
-        if (input_state.current.fields.left_ctrl && input_state.current.fields.left_mouse_button)
+        // Spawn single particle on click
+        if (input_state.current.fields.left_ctrl && input_state.pressed.fields.left_mouse_button)
         {
-            // Spawn a particle where the mouse clicks
             Vec2 p;
             get_cursor_position_normalized(&p, window, display_w, display_h);
             particles_spawn_at(&particles, p);
         }
-        else if (input_state.pressed.fields.left_mouse_button)
+        // Spew particles from mouse
+        else if (input_state.current.fields.left_shift && input_state.current.fields.left_mouse_button)
         {
-            // Spawn a planet where the mouse clicks
             Vec2 p;
             get_cursor_position_normalized(&p, window, display_w, display_h);
-            planets_spawn_at(&planets, p, 1.f /*mass*/);
+            particles_spawn_at(&particles, p);
+        }
+        // Spawn single planet on click
+        else if (input_state.pressed.fields.left_mouse_button)
+        {
+            Vec2 p;
+            get_cursor_position_normalized(&p, window, display_w, display_h);
+            planets_spawn_at(&planets, p, 0.1f /*mass*/);
         }
 
         // Apply planet gravity to particles
