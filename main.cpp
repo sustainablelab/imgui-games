@@ -288,6 +288,11 @@ void planets_apply_to_particles(const Planets* const planets, Particles* const p
     }
 }
 
+void planets_clear(Planets* const planets)
+{
+    planets->n_active = 0;
+}
+
 void planets_destroy(Planets* const planets)
 {
     std::free(planets->positions);
@@ -571,6 +576,10 @@ int main(int, char**)
         if (ImGui::SmallButton("Clear particles"))
         {
             particles_clear(&particles);
+        }
+        if (ImGui::SmallButton("Clear planets"))
+        {
+            planets_clear(&planets);
         }
         ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
         ImGui::End();
