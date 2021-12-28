@@ -338,24 +338,15 @@ void planets_apply_to_particles(const Planets* const planets, const Environment*
     {
         for (int p = 0; p < planets->n_active; ++p)
         {
-            Vec2 force;
-            // Force is particle_position - planet_position
-            /* force.x = (ps.positions + i)->x - planet.x; */
-            /* force.y = (ps.positions + i)->y - planet.y; */
+            Vec2 delta;
+
             // Force is planet_position - particle_position
-            force.x = (planets->positions + p)->x - (ps->positions + i)->x;
-            force.y = (planets->positions + p)->y - (ps->positions + i)->y;
+            delta.x = (planets->positions + p)->x - (ps->positions + i)->x;
+            delta.y = (planets->positions + p)->y - (ps->positions + i)->y;
 
             // Normalize the force
-            const float r = vec2_length_squared(&force);
-            if (r > 1e-4f)
-            {
-                const float m = *(planets->masses + p) / r;
-                force.x *= m;
-                force.y *= m;
-                (ps->forces + i)->x += force.x;
-                (ps->forces + i)->y += force.y;
-            }
+            const float r_sq = (1.f + vec2_length_squared(&delta));
+            vec2_scale_compound_add(ps->forces + i, &delta, *(planets->masses + p) / r_sq);
         }
     }
 }
@@ -598,6 +589,7 @@ int main(int, char**)
     user_input_state_initialized(&input_state, window);
 
     float point_size = 3.f;
+    float planet_mass = 0.1f;
 
     // Main loop
     while (!glfwWindowShouldClose(window))
@@ -633,7 +625,9 @@ int main(int, char**)
         {
             Vec2 p;
             get_cursor_position_normalized(&p, window, display_w, display_h);
-            planets_spawn_at(&planets, p, 0.1f /*mass*/);
+            planets_spawn_at(&planets, p, planet_mass);
+
+            planet_mass += 0.1f;
         }
 
         // Apply planet gravity to particles
