@@ -166,12 +166,7 @@ void particles_initialize(Particles* const ps, const int particle_count)
 
     ps->n_active = 0;
     ps->n_max = particle_count;
-<<<<<<< HEAD
     ps->max_velocity = 1;
-=======
-
-    ps->max_velocity = 1.f;
->>>>>>> 1e59df2... Adds experimental "no-force" boundaries
 }
 
 void particles_spawn_at(Particles* const ps, const Vec2 position)
