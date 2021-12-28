@@ -141,25 +141,6 @@ void particles_initialize(Particles* const ps, const int particle_count)
     ps->max_velocity = 1;
 }
 
-void particles_spawn_random(Particles* const ps, int n_spawn, const float y_min, const float y_max)
-{
-    // Clamp number of points to spawn to max allocated
-    n_spawn = imin(ps->n_max - ps->n_active, n_spawn);
-
-    // Initialize point state
-    while (n_spawn-- > 0)
-    {
-        // Get random starting positions and velocities
-        Vec2 p_init;
-        vec2_set_random_uniform_scaled(&p_init, BOUNDARY_LIMIT);
-        p_init.y = std::fmin(y_max, std::fmax(y_min, p_init.y));
-        vec2_set(ps->positions + ps->n_active, &p_init);
-
-        // Increment number of active particles
-        ++ps->n_active;
-    }
-}
-
 void particles_spawn_at(Particles* const ps, const Vec2 position)
 {
     if (ps->n_active >= ps->n_max)
@@ -177,11 +158,6 @@ void particles_spawn_at(Particles* const ps, const Vec2 position)
 void particles_clear(Particles* const ps)
 {
     ps->n_active = 0;
-}
-
-void particles_reset_on_loop(Particles* const ps, const Environment* const env)
-{
-    vec2_set_n(ps->forces, &env->gravity, ps->n_active);
 }
 
 void particles_update(Particles* const ps, const Environment* const env, const float dt)
@@ -233,6 +209,8 @@ void particles_update(Particles* const ps, const Environment* const env, const f
     {
         vec2_clamp(ps->positions + i, -BOUNDARY_LIMIT, +BOUNDARY_LIMIT);
     }
+
+    vec2_set_n(ps->forces, &env->gravity, ps->n_active);
 }
 
 void particles_destroy(Particles* const ps)
@@ -454,7 +432,7 @@ int main(int, char**)
     GLFWwindow* window = glfwCreateWindow(
         display_w,
         display_h,                          // width, height
-        "Dear ImGui GLFW+OpenGL3 example",  // title
+        "snad",  // title
         NULL,                               // monitor
         NULL                                // share
         );
@@ -546,8 +524,6 @@ int main(int, char**)
     while (!glfwWindowShouldClose(window))
     {
         const float dt = ImGui::GetIO().DeltaTime;
-
-        particles_reset_on_loop(&particles, &env);
 
         glfwPollEvents();
 
