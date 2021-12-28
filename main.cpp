@@ -49,66 +49,6 @@ void integrate_states_fixed_step(Vec2* positions, Vec2* velocities, Vec2* accele
     }
 }
 
-struct RenderPipelineData
-{
-    GLuint points_vba_id;
-    GLuint lines_vba_id;
-};
-
-void render_pipeline_initialize(RenderPipelineData* const r_data)
-{
-    glPointSize(3.f);
-
-    // Setup vertex buffer for points
-    glGenBuffers(1, &r_data->points_vba_id);
-    glBindBuffer(GL_ARRAY_BUFFER, r_data->points_vba_id);
-
-    // Setup vertex buffer for lines
-    glGenBuffers(1, &r_data->lines_vba_id);
-    glBindBuffer(GL_ARRAY_BUFFER, r_data->lines_vba_id);
-}
-
-void render_pipeline_destroy(RenderPipelineData* const r_data)
-{
-    glDeleteBuffers(1, &r_data->points_vba_id);
-    glDeleteBuffers(1, &r_data->lines_vba_id);
-}
-
-void render_pipeline_draw_points(RenderPipelineData* const r_data, const Vec2* const points, const int n_points)
-{
-    glBindBuffer(GL_ARRAY_BUFFER, r_data->points_vba_id);
-    glEnableVertexAttribArray(0);
-    glVertexAttribPointer(
-        0,                  // attribute 0. No particular reason for 0, but must match the layout in the shader.
-        2,                  // size
-        GL_FLOAT,           // type
-        GL_FALSE,           // normalized?
-        0,                  // stride
-        (void*)0            // array buffer offset
-    );
-    glBufferData(GL_ARRAY_BUFFER, n_points * sizeof(Vec2), points, GL_DYNAMIC_DRAW);
-    glDrawArrays(GL_POINTS, 0, n_points);
-}
-
-void render_pipeline_draw_lines(RenderPipelineData* const r_data, const Line* const lines, const int n_lines)
-{
-    // TODO(optimization) environment data need only be uploaded once, so glBufferData is redundant on
-    //                    each update. Make a separate upload function and call on loop entry, or keep things
-    //                    this way if the environment is to be dynamic
-    glBindBuffer(GL_ARRAY_BUFFER, r_data->lines_vba_id);
-    glEnableVertexAttribArray(0);
-    glVertexAttribPointer(
-        0,                  // attribute 0. No particular reason for 0, but must match the layout in the shader.
-        2,                  // size
-        GL_FLOAT,           // type
-        GL_FALSE,           // normalized?
-        0,                  // stride
-        (void*)0            // array buffer offset
-    );
-    glBufferData(GL_ARRAY_BUFFER, n_lines * sizeof(Line), lines, GL_DYNAMIC_DRAW);
-    glDrawArrays(GL_LINES, 0, 2 * n_lines);
-}
-
 
 void get_cursor_position_normalized(Vec2* const cursor_position, GLFWwindow* const window, const int display_w, const int display_h)
 {
@@ -167,7 +107,7 @@ void environment_destroy(Environment* const env)
     std::free(env->normals);
 }
 
-struct ParticleState
+struct Particles
 {
     Vec2* positions_previous;
     Vec2* positions;
@@ -179,7 +119,7 @@ struct ParticleState
     float max_velocity;
 };
 
-void particle_state_initialize(ParticleState* const ps, const int particle_count)
+void particle_state_initialize(Particles* const ps, const int particle_count)
 {
     ps->positions_previous = (Vec2*)std::malloc(sizeof(Vec2) * particle_count);
     vec2_set_zero_n(ps->positions_previous, particle_count);
@@ -201,7 +141,7 @@ void particle_state_initialize(ParticleState* const ps, const int particle_count
     ps->max_velocity = 1;
 }
 
-void particle_state_spawn_random(ParticleState* const ps, int n_spawn, const float y_min, const float y_max)
+void particle_state_spawn_random(Particles* const ps, int n_spawn, const float y_min, const float y_max)
 {
     // Clamp number of points to spawn to max allocated
     n_spawn = imin(ps->n_max - ps->n_active, n_spawn);
@@ -220,7 +160,7 @@ void particle_state_spawn_random(ParticleState* const ps, int n_spawn, const flo
     }
 }
 
-void particle_state_spawn_at(ParticleState* const ps, const Vec2 position)
+void particle_state_spawn_at(Particles* const ps, const Vec2 position)
 {
     if (ps->n_active >= ps->n_max)
     {
@@ -234,13 +174,13 @@ void particle_state_spawn_at(ParticleState* const ps, const Vec2 position)
     ++ps->n_active;
 }
 
-void particle_state_reset(ParticleState* const ps, const Environment* const env)
+void particle_state_reset(Particles* const ps, const Environment* const env)
 {
     vec2_set_n(ps->forces, &env->gravity, ps->n_active);
 }
 
 
-void particle_state_update(ParticleState* const ps, const Environment* const env, const float dt)
+void particle_state_update(Particles* const ps, const Environment* const env, const float dt)
 {
     // Cache previous positions
     vec2_copy_n(ps->positions_previous, ps->positions, ps->n_active);
@@ -291,13 +231,13 @@ void particle_state_update(ParticleState* const ps, const Environment* const env
     }
 }
 
-void particle_state_destroy(ParticleState* const ps)
+void particle_state_destroy(Particles* const ps)
 {
     std::free(ps->positions_previous);
     std::free(ps->positions);
     std::free(ps->velocities_previous);
     std::free(ps->velocities);
-    std::free(ps->forces);   
+    std::free(ps->forces);
 }
 
 struct Planets
@@ -337,7 +277,7 @@ void planets_spawn_at(Planets* const planets, const Vec2 position, const float m
     ++planets->n_active;
 }
 
-void planets_apply_to_particles(const Planets* const planets, ParticleState* const ps)
+void planets_apply_to_particles(const Planets* const planets, Particles* const ps)
 {
     // Calc pull of each planet on each particle; add results to forces
     for (int i = 0; i < ps->n_active; ++i)
@@ -411,6 +351,86 @@ void user_input_state_update(UserInputState* const state, GLFWwindow* const wind
     std::memcpy(&state->previous, &state->current, sizeof(Buttons));  
 }
 
+struct RenderPipelineData
+{
+    GLuint particles_vba_id;
+    GLuint planets_vba_id;
+    GLuint environment_vba_id;
+};
+
+void render_pipeline_initialize(RenderPipelineData* const r_data)
+{
+    glPointSize(3.f);
+
+    // Setup vertex buffer for points
+    glGenBuffers(1, &r_data->particles_vba_id);
+    glBindBuffer(GL_ARRAY_BUFFER, r_data->particles_vba_id);
+
+    // Setup vertex buffer for planets
+    glGenBuffers(1, &r_data->planets_vba_id);
+    glBindBuffer(GL_ARRAY_BUFFER, r_data->planets_vba_id);
+
+    // Setup vertex buffer for lines
+    glGenBuffers(1, &r_data->environment_vba_id);
+    glBindBuffer(GL_ARRAY_BUFFER, r_data->environment_vba_id);
+}
+
+void render_pipeline_destroy(RenderPipelineData* const r_data)
+{
+    glDeleteBuffers(1, &r_data->particles_vba_id);
+    glDeleteBuffers(1, &r_data->planets_vba_id);
+    glDeleteBuffers(1, &r_data->environment_vba_id);
+}
+
+void render_pipeline_draw_points(const GLuint vbid, const Vec2* const points, const int n_points)
+{
+    glBindBuffer(GL_ARRAY_BUFFER, vbid);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(
+        0,                  // attribute 0. No particular reason for 0, but must match the layout in the shader.
+        2,                  // size
+        GL_FLOAT,           // type
+        GL_FALSE,           // normalized?
+        0,                  // stride
+        (void*)0            // array buffer offset
+    );
+    glBufferData(GL_ARRAY_BUFFER, n_points * sizeof(Vec2), points, GL_DYNAMIC_DRAW);
+    glDrawArrays(GL_POINTS, 0, n_points);
+}
+
+void render_pipeline_draw_lines(const GLuint vbid, const Line* const lines, const int n_lines)
+{
+    // TODO(optimization) environment data need only be uploaded once, so glBufferData is redundant on
+    //                    each update. Make a separate upload function and call on loop entry, or keep things
+    //                    this way if the environment is to be dynamic
+    glBindBuffer(GL_ARRAY_BUFFER, vbid);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(
+        0,                  // attribute 0. No particular reason for 0, but must match the layout in the shader.
+        2,                  // size
+        GL_FLOAT,           // type
+        GL_FALSE,           // normalized?
+        0,                  // stride
+        (void*)0            // array buffer offset
+    );
+    glBufferData(GL_ARRAY_BUFFER, n_lines * sizeof(Line), lines, GL_DYNAMIC_DRAW);
+    glDrawArrays(GL_LINES, 0, 2 * n_lines);
+}
+
+void render_pipeline_draw_planets(RenderPipelineData* const r_data, const Planets* const planets)
+{
+    render_pipeline_draw_points(r_data->planets_vba_id, planets->positions, planets->n_active);
+}
+
+void render_pipeline_draw_particles(RenderPipelineData* const r_data, const Particles* const particles)
+{
+    render_pipeline_draw_points(r_data->particles_vba_id, particles->positions, particles->n_active);
+}
+
+void render_pipeline_draw_environment(RenderPipelineData* const r_data, const Environment* const env)
+{
+    render_pipeline_draw_lines(r_data->environment_vba_id, env->boundaries, env->n_active);
+}
 
 int main(int, char**)
 {
@@ -501,8 +521,8 @@ int main(int, char**)
     static const int N_POINTS_MAX = 200000;
 
     // Initialize particles
-    ParticleState ps;
-    particle_state_initialize(&ps, N_POINTS_MAX);
+    Particles particles;
+    particle_state_initialize(&particles, N_POINTS_MAX);
 
     // Initial planets
     Planets planets;
@@ -523,7 +543,7 @@ int main(int, char**)
     {
         const float dt = ImGui::GetIO().DeltaTime;
 
-        particle_state_reset(&ps, &env);
+        particle_state_reset(&particles, &env);
 
         glfwPollEvents();
 
@@ -541,7 +561,7 @@ int main(int, char**)
             // Spawn a particle where the mouse clicks
             Vec2 p;
             get_cursor_position_normalized(&p, window, display_w, display_h);
-            particle_state_spawn_at(&ps, p);
+            particle_state_spawn_at(&particles, p);
         }
         else if (input_state.pressed.fields.left_mouse_button)
         {
@@ -552,14 +572,14 @@ int main(int, char**)
         }
 
         // Apply planet gravity to particles
-        planets_apply_to_particles(&planets, &ps);
+        planets_apply_to_particles(&planets, &particles);
 
         // Do particle update
-        particle_state_update(&ps, &env, dt);
+        particle_state_update(&particles, &env, dt);
 
         // Create a window called "Hello, world!" and append into it.
         ImGui::Begin("Debug stuff");
-        ImGui::Text("Points : (%d)", ps.n_active);
+        ImGui::Text("Points : (%d)", particles.n_active);
         ImGui::Text("Boundaries : (%d)", env.n_active);
         ImGui::InputFloat2("gravity", (float*)(&env.gravity));
         ImGui::SliderFloat("dampening", &env.dampening, 0.1f, 1.f);
@@ -582,8 +602,9 @@ int main(int, char**)
         glClear(GL_COLOR_BUFFER_BIT);
 
         // Draw lines to screen
-        render_pipeline_draw_points(&render_pipeline_data, ps.positions, ps.n_active);
-        render_pipeline_draw_lines(&render_pipeline_data, env.boundaries, env.n_active);
+        render_pipeline_draw_environment(&render_pipeline_data, &env);
+        render_pipeline_draw_particles(&render_pipeline_data, &particles);
+        render_pipeline_draw_planets(&render_pipeline_data, &planets);
 
         // Draw imgui stuff to screen
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
@@ -602,7 +623,7 @@ int main(int, char**)
     // Cleanup game state
     render_pipeline_destroy(&render_pipeline_data);
     planets_destroy(&planets);
-    particle_state_destroy(&ps);
+    particle_state_destroy(&particles);
     environment_destroy(&env);
 
     return 0;
