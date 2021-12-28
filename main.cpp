@@ -380,6 +380,7 @@ struct ParticleState
     Vec2* forces;
     int n_active;
     int n_max;
+    float max_velocity;
 };
 
 void particle_state_initialize(ParticleState* const ps, const int particle_count)
@@ -401,6 +402,7 @@ void particle_state_initialize(ParticleState* const ps, const int particle_count
 
     ps->n_active = 0;
     ps->n_max = particle_count;
+    ps->max_velocity = 1;
 }
 
 void particle_state_spawn_random(ParticleState* const ps, int n_spawn, const float y_min, const float y_max)
@@ -481,6 +483,11 @@ void particle_state_update(ParticleState* const ps, const Environment* const env
     // Update point states
     integrate_states_fixed_step(ps->positions, ps->velocities, ps->forces, ps->n_active, dt);
 
+    // Apply hard limits on velocities
+    for (int i = 0; i < ps->n_active; ++i)
+    {
+        vec2_clamp(ps->velocities + i, -(ps->max_velocity), ps->max_velocity);
+    }
     // Apply hard screen limits on position
     for (int i = 0; i < ps->n_active; ++i)
     {
@@ -694,7 +701,7 @@ int main(int, char**)
         Vec2{+0.5f * BOUNDARY_LIMIT, -0.5 * BOUNDARY_LIMIT}
     );
 
-    static const int N_PLANETS_MAX = 10;
+    static const int N_PLANETS_MAX = 1000;
     static const int N_POINTS_MAX = 200000;
 
     // Initialize particles
@@ -760,12 +767,16 @@ int main(int, char**)
         ImGui::Text("Boundaries : (%d)", env.n_active);
         ImGui::InputFloat2("gravity", (float*)(&env.gravity));
         ImGui::SliderFloat("dampening", &env.dampening, 0.1f, 1.f);
+        ImGui::SliderFloat("Max Velocity", &ps.max_velocity, 0.5f, 5.0f);
         if (ImGui::SliderFloat("point size", &point_size, 1.f, 20.f))
         {
             glPointSize(point_size);
         }
         ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
         ImGui::End();
+
+        // TODO:
+        // Render the game to a texture (IMGUI displays this image in a window)
 
         // Rendering
         ImGui::Render();
