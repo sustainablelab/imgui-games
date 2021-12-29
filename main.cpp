@@ -429,7 +429,10 @@ struct RenderPipelineData
     GLuint environment_vbo;
 };
 
-void render_pipeline_initialize(RenderPipelineData* const r_data)
+void render_pipeline_initialize(RenderPipelineData* const r_data,
+                                const Planets* const planets,
+                                const Particles* const particles,
+                                const Environment* const environment)
 {
     // Enable alpha blending
     glEnable(GL_BLEND);
@@ -442,13 +445,15 @@ void render_pipeline_initialize(RenderPipelineData* const r_data)
             R"VertexShader(
                 #version 330 core
                 layout (location = 0) in vec2 aPos;
+                layout (location = 1) in vec2 aVel;
 
                 out vec4 VertColor;
 
                 void main()
                 {
+                    float mag = sqrt(aVel.x * aVel.x + aVel.y * aVel.y);
                     gl_Position = vec4(aPos.x, aPos.y, 0.0, 1.0);
-                    VertColor = vec4(0.7, 0.7, 1.0, 1);
+                    VertColor = vec4(mag, 0.3 * mag, 1.f-mag, 1);
                 }
             )VertexShader"
         );
@@ -517,8 +522,9 @@ void render_pipeline_initialize(RenderPipelineData* const r_data)
     glBindVertexArray(r_data->particles_vao);
     glGenBuffers(1, &r_data->particles_vbo);
     glBindBuffer(GL_ARRAY_BUFFER, r_data->particles_vbo);
+    glBufferData(GL_ARRAY_BUFFER, particles->n_max * sizeof(Vec2), 0, GL_DYNAMIC_DRAW);
 
-    // Create shader for particles
+    // Create shader for planets
     {
         const GLuint vert_shader = create_shader_source(
             GL_VERTEX_SHADER,
@@ -600,12 +606,14 @@ void render_pipeline_initialize(RenderPipelineData* const r_data)
     glBindVertexArray(r_data->planets_vao);
     glGenBuffers(1, &r_data->planets_vbo);
     glBindBuffer(GL_ARRAY_BUFFER, r_data->planets_vbo);
+    glBufferData(GL_ARRAY_BUFFER, 2 * planets->n_max * sizeof(Vec2), 0, GL_DYNAMIC_DRAW);
 
     // Setup vertex buffer for lines
     glGenVertexArrays(1, &r_data->environment_vao);
     glBindVertexArray(r_data->environment_vao);
     glGenBuffers(1, &r_data->environment_vbo);
     glBindBuffer(GL_ARRAY_BUFFER, r_data->environment_vbo);
+    glBufferData(GL_ARRAY_BUFFER, environment->n_max * sizeof(Line), 0, GL_DYNAMIC_DRAW);
 
     // Unset VBO/VAO
     glBindBuffer(GL_ARRAY_BUFFER, 0);
@@ -635,7 +643,34 @@ void render_pipeline_draw_points(const GLuint vao, const GLuint vbo, const Vec2*
         0,                  // stride
         (void*)0            // array buffer offset
     );
-    glBufferData(GL_ARRAY_BUFFER, n_points * sizeof(Vec2), points, GL_DYNAMIC_DRAW);
+    glBufferSubData(GL_ARRAY_BUFFER, 0, n_points * sizeof(Vec2), points);
+    glDrawArrays(GL_POINTS, 0, n_points);
+}
+
+void render_pipeline_draw_points_with_direction(const GLuint vao, const GLuint vbo, const Vec2* const points, const Vec2* const directions, const int n_points)
+{
+    glBindVertexArray(vao);
+    glBindBuffer(GL_ARRAY_BUFFER, vbo);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(
+        0,                  // attribute 0. No particular reason for 0, but must match the layout in the shader.
+        2,                  // size
+        GL_FLOAT,           // type
+        GL_FALSE,           // normalized?
+        sizeof(float) * 2,  // stride
+        (void*)0            // array buffer offset
+    );
+    glBufferSubData(GL_ARRAY_BUFFER, 0, n_points * sizeof(Vec2), points);
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(
+        1,                  // attribute 1. No particular reason for 1, but must match the layout in the shader.
+        2,                  // size
+        GL_FLOAT,           // type
+        GL_FALSE,           // normalized?
+        sizeof(float) * 2,  // stride
+        (void*)(n_points * sizeof(Vec2)) // array buffer offset
+    );
+    glBufferSubData(GL_ARRAY_BUFFER, n_points * sizeof(Vec2), n_points * sizeof(Vec2), directions);
     glDrawArrays(GL_POINTS, 0, n_points);
 }
 
@@ -655,7 +690,7 @@ void render_pipeline_draw_lines(const GLuint vao, const GLuint vbo, const Line* 
         0,                  // stride
         (void*)0            // array buffer offset
     );
-    glBufferData(GL_ARRAY_BUFFER, n_lines * sizeof(Line), lines, GL_DYNAMIC_DRAW);
+    glBufferSubData(GL_ARRAY_BUFFER, 0, n_lines * sizeof(Line), lines);
     glDrawArrays(GL_LINES, 0, 2 * n_lines);
 }
 
@@ -668,7 +703,7 @@ void render_pipeline_draw_planets(RenderPipelineData* const r_data, const Planet
 void render_pipeline_draw_particles(RenderPipelineData* const r_data, const Particles* const particles)
 {
     glUseProgram(r_data->particles_shader);
-    render_pipeline_draw_points(r_data->particles_vao, r_data->particles_vbo, particles->positions, particles->n_active);
+    render_pipeline_draw_points_with_direction(r_data->particles_vao, r_data->particles_vbo, particles->positions, particles->velocities, particles->n_active);
 }
 
 void render_pipeline_draw_environment(RenderPipelineData* const r_data, const Environment* const env)
@@ -775,7 +810,12 @@ int main(int, char**)
 
     // Initialize render data
     RenderPipelineData render_pipeline_data;
-    render_pipeline_initialize(&render_pipeline_data);
+    render_pipeline_initialize(
+        &render_pipeline_data,
+        &planets,
+        &particles,
+        &env
+    );
 
     // Update current used input states
     UserInputState input_state;
