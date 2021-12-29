@@ -354,7 +354,9 @@ void planets_apply_to_particles(const Planets* const planets, const Environment*
             // and the other a repeller. It seems like this sort of asymmetry is needed to make the game more playable
             // otherwise, you end up with particles cycling clusters of planets in chaos as opposed to getting "flung,"
             // unless you are extremely careful, which is not fun IMO.
-            const float sign = std::copysign(1.f, vec2_dot(&delta, planets->directions + p));
+            const bool is_symmetric = (vec2_length_squared(planets->directions + p) < 1e-4f);
+            const float sign = (is_symmetric)*(-1.f) +
+                               (!is_symmetric)*std::copysign(1.f, vec2_dot(&delta, planets->directions + p));
 
             // Squared distance between planet and particle
             const float r_sq = vec2_length_squared(&delta);
@@ -606,6 +608,7 @@ int main(int, char**)
 
     float point_size = 3.f;
     float next_planet_mass = 0.3f;
+    bool next_planet_assymetric_grav = false;
 
     // Main loop
     while (!glfwWindowShouldClose(window))
@@ -648,7 +651,15 @@ int main(int, char**)
         {
             Vec2 p;
             get_cursor_position_normalized(&p, window, display_w, display_h);
-            planets_spawn_at(&planets, p, Vec2{0, 1}, next_planet_mass);
+
+            if (next_planet_assymetric_grav)
+            {
+                planets_spawn_at(&planets, p, Vec2{0, 1}, next_planet_mass);
+            }
+            else
+            {
+                planets_spawn_at(&planets, p, Vec2{0, 0}, next_planet_mass);
+            }
         }
 
         // Apply planet gravity to particles
@@ -670,6 +681,7 @@ int main(int, char**)
         ImGui::SliderFloat("dampening", &env.dampening, 0.1f, 1.f);
         ImGui::SliderFloat("max particle velocity", &particles.max_velocity, 0.5f, 5.f);
         ImGui::SliderFloat("next planet mass", &next_planet_mass, 0.1f, 2.f);
+        ImGui::Checkbox("next gravity assymetric", &next_planet_assymetric_grav);
         if (ImGui::SliderFloat("point size", &point_size, 1.f, 20.f))
         {
             glPointSize(point_size);
