@@ -838,6 +838,8 @@ int main(int, char**)
     UserInputState input_state;
     user_input_state_initialized(&input_state, window);
 
+    float freq_min = 60.f;
+    float dt_max = 1.f / freq_min;
     float point_size = 3.f;
     float next_planet_mass = 0.3f;
     bool next_planet_assymetric_grav = false;
@@ -845,7 +847,8 @@ int main(int, char**)
     // Main loop
     while (!glfwWindowShouldClose(window))
     {
-        const float dt = ImGui::GetIO().DeltaTime;
+        const float dt_raw = ImGui::GetIO().DeltaTime;
+        const float dt = std::fmin(dt_max, dt_raw);
 
         glfwPollEvents();
 
@@ -909,6 +912,10 @@ int main(int, char**)
         ImGui::Dummy(ImVec2{1, 30});
         ImGui::Text("Particles  : (%d)", particles.n_active);
         ImGui::Text("Boundaries : (%d)", env.n_boundaries);
+        if (ImGui::SliderFloat("min update rate", (float*)(&freq_min), 30.0, 120.0))
+        {
+            dt_max = 1./ freq_min;
+        }
         ImGui::InputFloat2("gravity", (float*)(&env.gravity));
         ImGui::SliderFloat("dampening", &env.dampening, 0.1f, 1.f);
         ImGui::SliderFloat("max particle velocity", &particles.max_velocity, 0.5f, 5.f);
