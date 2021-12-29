@@ -211,12 +211,12 @@ void particles_update(Particles* const ps, const Environment* const env, const f
     Vec2 negative_gravity;
     vec2_negate(&negative_gravity, &env->gravity);
 
-    // Divide by particle mass
-    for (int i = 0; i < ps->n_active; ++i)
-    {
-        (ps->forces + i)->x /= 1.f;
-        (ps->forces + i)->y /= 1.f;
-    }
+    // // Divide by particle mass
+    // for (int i = 0; i < ps->n_active; ++i)
+    // {
+    //     (ps->forces + i)->x *= 2.f;
+    //     (ps->forces + i)->y *= 2.f;
+    // }
 
     // Update point states BEFORE collision resolution to figure out
     // where points will be next as if they hadn't collided
@@ -305,6 +305,7 @@ void particles_destroy(Particles* const ps)
 struct Planets
 {
     Vec2* positions;
+    Vec2* directions;
     float* masses;
     int n_active;
     int n_max;
@@ -315,6 +316,9 @@ void planets_initialize(Planets* const planets, const int planets_count)
     planets->positions = (Vec2*)std::malloc(sizeof(Vec2) * planets_count);
     vec2_set_zero_n(planets->positions, planets_count);
 
+    planets->directions = (Vec2*)std::malloc(sizeof(Vec2) * planets_count);
+    vec2_set_zero_n(planets->directions, planets_count);
+
     planets->masses = (float*)std::malloc(sizeof(float) * planets_count);
     std::memset(planets->masses, 0, sizeof(float) * planets_count);
 
@@ -322,7 +326,7 @@ void planets_initialize(Planets* const planets, const int planets_count)
     planets->n_max = planets_count;
 }
 
-void planets_spawn_at(Planets* const planets, const Vec2 position, const float mass)
+void planets_spawn_at(Planets* const planets, const Vec2 position, const Vec2 direction, const float mass)
 {
     if (planets->n_active >= planets->n_max)
     {
@@ -331,6 +335,7 @@ void planets_spawn_at(Planets* const planets, const Vec2 position, const float m
 
     // Initialize point state
     vec2_set(planets->positions + planets->n_active, &position);
+    vec2_set(planets->directions + planets->n_active, &direction);
 
     // Initialize mass
     *(planets->masses + planets->n_active) = mass;
@@ -349,12 +354,21 @@ void planets_apply_to_particles(const Planets* const planets, const Environment*
             Vec2 delta;
 
             // Force is planet_position - particle_position
-            delta.x = (planets->positions + p)->x - (ps->positions + i)->x;
-            delta.y = (planets->positions + p)->y - (ps->positions + i)->y;
+            delta.x = (ps->positions + i)->x - (planets->positions + p)->x;
+            delta.y = (ps->positions + i)->y - (planets->positions + p)->y;
 
-            // Normalize the force
-            const float r_sq = (0.1f + vec2_length_squared(&delta));
-            vec2_scale_compound_add(ps->forces + i, &delta, *(planets->masses + p) / r_sq);
+            // The "direction" of a planet's field basically splits it into two-halves. On one side, its an attractor,
+            // and the other a repeller. It seems like this sort of asymmetry is needed to make the game more playable
+            // otherwise, you end up with particles cycling clusters of planets in chaos as opposed to getting "flung,"
+            // unless you are extremely careful, which is not fun IMO.
+            const float sign = std::copysign(1.f, vec2_dot(&delta, planets->directions + p));
+
+            // Squared distance between planet and particle
+            const float r_sq = vec2_length_squared(&delta);
+
+            // NOTE: this is no longer consistent with the Newtonian gravitational
+            //       model, but make attractions more stable
+            vec2_scale_compound_add(ps->forces + i, &delta, sign * (*(planets->masses + p) / (r_sq + 1e-5f)));
         }
     }
 }
@@ -367,6 +381,7 @@ void planets_clear(Planets* const planets)
 void planets_destroy(Planets* const planets)
 {
     std::free(planets->positions);
+    std::free(planets->directions);
     std::free(planets->masses);
 }
 
@@ -597,7 +612,7 @@ int main(int, char**)
     user_input_state_initialized(&input_state, window);
 
     float point_size = 3.f;
-    float next_planet_mass = 0.1f;
+    float next_planet_mass = 0.3f;
 
     // Main loop
     while (!glfwWindowShouldClose(window))
@@ -640,7 +655,7 @@ int main(int, char**)
         {
             Vec2 p;
             get_cursor_position_normalized(&p, window, display_w, display_h);
-            planets_spawn_at(&planets, p, next_planet_mass);
+            planets_spawn_at(&planets, p, Vec2{0, 1}, next_planet_mass);
         }
 
         // Apply planet gravity to particles
