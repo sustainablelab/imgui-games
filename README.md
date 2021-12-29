@@ -925,8 +925,22 @@ to the line of code that caused an error or warning.
 
 # OpenGL on Windows
 
+GLEW -- I think this is the library that creates the function
+pointers for OpenGL functions (for all the ones IMGUI doesn't
+need, but that we want to use). This is how OpenGL is a spec as
+opposed to a library. The function implementations are different
+depending on the machine. There are several of these libraries, I
+think GLAD is another one.
+
+Such a library is already provided on Linux, but on MinGW64 on
+Windows, I need to get the appropriate library of function
+pointering stuffs:
+
 ```bash-msys
 $ pacman -S mingw64/mingw-w64-x86_64-glew
 ```
 
 Then see conditional stuff I added for Windows with macro BOB.
+Again, Linux doesn't need it, Windows does, so we added a macro
+BOB to the CFLAGS for Windows in the Makefile, and wrapped the
+header includes in main.cpp with `if defined(BOB)`.
