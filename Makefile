@@ -27,6 +27,12 @@ CXXFLAGS = -I$(IMGUI_DIR) -I$(IMGUI_DIR)/backends -I./utility
 CXXFLAGS += -g -Wall -Wformat
 LIBS =
 
+ifeq ($(DEBUG),yes)
+  CXXFLAGS += -O0
+else
+  CXXFLAGS += -O3
+endif
+
 ##---------------------------------------------------------------------
 ## OPENGL ES
 ##---------------------------------------------------------------------
