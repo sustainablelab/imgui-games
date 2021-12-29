@@ -397,6 +397,7 @@ union Buttons
         uint64_t left_mouse_button : 1;
         uint64_t left_ctrl : 1;
         uint64_t left_shift : 1;
+        uint64_t key_f : 1;
     };
 
     BitField fields;
@@ -425,6 +426,7 @@ void user_input_state_update(UserInputState* const state, GLFWwindow* const wind
     state->current.fields.left_mouse_button = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS;
     state->current.fields.left_ctrl = glfwGetKey(window, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS;
     state->current.fields.left_shift = glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS;
+    state->current.fields.key_f = glfwGetKey(window, GLFW_KEY_F) == GLFW_PRESS;
     state->pressed.mask = (state->current.mask ^ state->previous.mask) & state->current.mask;
     state->released.mask = (state->current.mask ^ state->previous.mask) & state->previous.mask;
     std::memcpy(&state->previous, &state->current, sizeof(Buttons));  
@@ -844,7 +846,6 @@ int main(int, char**)
 
     float freq_min = 60.f;
     float dt_max = 1.f / freq_min;
-    float point_size = 3.f;
     float next_planet_mass = 0.33f;
     bool next_planet_assymetric_grav = false;
 
@@ -900,6 +901,24 @@ int main(int, char**)
                 planets_spawn_at(&planets, p, Vec2{0, 0}, next_planet_mass);
             }
         }
+        // Spawn / grab single planet which follows the cursor
+        else if (input_state.current.fields.key_f)
+        {
+            Vec2 mouse_position_world;
+            get_cursor_position_normalized(&mouse_position_world, window, display_w, display_h);
+            if (planets.n_active > 0)
+            {
+                planets.positions[0] = mouse_position_world;
+            }
+            else if (next_planet_assymetric_grav)
+            {
+                planets_spawn_at(&planets, mouse_position_world, Vec2{0, 1}, next_planet_mass);
+            }
+            else
+            {
+                planets_spawn_at(&planets, mouse_position_world, Vec2{0, 0}, next_planet_mass);
+            }
+        }
 
         // Apply planet gravity to particles
         planets_apply_to_particles(&planets, &env, &particles);
@@ -925,10 +944,6 @@ int main(int, char**)
         ImGui::SliderFloat("max particle velocity", &particles.max_velocity, 0.5f, 5.f);
         ImGui::SliderFloat("next planet mass", &next_planet_mass, 0.1f, 2.f);
         ImGui::Checkbox("next gravity assymetric", &next_planet_assymetric_grav);
-        if (ImGui::SliderFloat("point size", &point_size, 1.f, 20.f))
-        {
-            glPointSize(point_size);
-        }
         if (ImGui::SmallButton("Clear particles"))
         {
             particles_clear(&particles);
