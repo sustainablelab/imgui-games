@@ -304,11 +304,18 @@ void particles_destroy(Particles* const ps)
     std::free(ps->forces);
 }
 
+struct PlanetProperties
+{
+    float age;
+    float mass;
+};
+
 struct Planets
 {
     Vec2* positions;
     Vec2* directions;
-    float* masses;
+    PlanetProperties* properties;
+
     int n_active;
     int n_max;
 };
@@ -321,8 +328,8 @@ void planets_initialize(Planets* const planets, const int planets_count)
     planets->directions = (Vec2*)std::malloc(sizeof(Vec2) * planets_count);
     vec2_set_zero_n(planets->directions, planets_count);
 
-    planets->masses = (float*)std::malloc(sizeof(float) * planets_count);
-    std::memset(planets->masses, 0, sizeof(float) * planets_count);
+    planets->properties = (PlanetProperties*)std::malloc(sizeof(PlanetProperties) * planets_count);
+    std::memset(planets->properties, 0, sizeof(PlanetProperties) * planets_count);
 
     planets->n_active = 0;
     planets->n_max = planets_count;
@@ -340,10 +347,21 @@ void planets_spawn_at(Planets* const planets, const Vec2 position, const Vec2 di
     vec2_set(planets->directions + planets->n_active, &direction);
 
     // Initialize mass
-    *(planets->masses + planets->n_active) = mass;
+    (planets->properties + planets->n_active)->mass = mass;
+
+    // Initialize time alive
+    (planets->properties + planets->n_active)->age = 0.f;
 
     // Increment number of active particles
     ++planets->n_active;
+}
+
+void planets_update(Planets* const planets, const float dt)
+{
+    for (int i = 0; i < planets->n_active; ++i)
+    {
+        planets->properties[i].age += dt;
+    }
 }
 
 void planets_apply_to_particles(const Planets* const planets, const Environment* const env, Particles* const ps)
@@ -372,7 +390,7 @@ void planets_apply_to_particles(const Planets* const planets, const Environment*
 
             // NOTE: this is no longer consistent with the Newtonian gravitational
             //       model, but make attractions more stable
-            vec2_scale_compound_add(ps->forces + i, &delta, sign * (*(planets->masses + p) / (r_sq + 1e-5f)));
+            vec2_scale_compound_add(ps->forces + i, &delta, sign * ((planets->properties + p)->mass / (r_sq + 1e-5f)));
         }
     }
 }
@@ -386,7 +404,7 @@ void planets_destroy(Planets* const planets)
 {
     std::free(planets->positions);
     std::free(planets->directions);
-    std::free(planets->masses);
+    std::free(planets->properties);
 }
 
 union Buttons
@@ -548,13 +566,21 @@ void render_pipeline_initialize(RenderPipelineData* const r_data,
             R"VertexShader(
                 #version 330 core
                 layout (location = 0) in vec2 aPos;
+                layout (location = 1) in vec2 aProps;
 
-                out vec4 VertColor;
+                out vData
+                {
+                   vec4 color;
+                   float t;
+                   float r;
+                } VertProps;
 
                 void main()
                 {
                     gl_Position = vec4(aPos.x, aPos.y, 0.0, 1.0);
-                    VertColor = vec4(1.0, 0.5, 0.3, 1);
+                    VertProps.color = vec4(1.0, 0.5, 0.3, 0.8);
+                    VertProps.t = aProps[0];
+                    VertProps.r = aProps[1];
                 }
             )VertexShader"
         );
@@ -577,20 +603,30 @@ void render_pipeline_initialize(RenderPipelineData* const r_data,
                 layout(points) in;
                 layout(triangle_strip, max_vertices = 40) out;
 
-                in vec4[] VertColor;
+                in vData
+                {
+                   vec4 color;
+                   float t;
+                   float r;
+                } VertProps[];
+
                 out vec4 GeomColor;
 
                 const float TWO_PI = 2.0 * 3.1415926;
-                const float RADIUS = 0.1;
+                const float RADIUS_MIN = 0.15;
+                const float RADIUS_DELTA = 0.025;
                 void main()
                 {
-                    vec4 vColor = VertColor[0];
+                    vec4 vColor = VertProps[0].color;
+                    float t = VertProps[0].t;
+                    float r = VertProps[0].r;
+                    float radius = RADIUS_MIN + RADIUS_DELTA * sin(10 * r * t);
 
                     for (int i = 0; i <= 9; i++) {
                         float curr_ang = TWO_PI / 10.0 * (i+0);
-                        vec4 curr_offset = vec4(cos(curr_ang) * RADIUS, -sin(curr_ang) * RADIUS, 0.0, 0.0);
+                        vec4 curr_offset = vec4(cos(curr_ang) * radius, -sin(curr_ang) * radius, 0.0, 0.0);
                         gl_Position = gl_in[0].gl_Position + curr_offset;
-                        GeomColor = 0.1 * vColor;
+                        GeomColor = 0.2 * vColor;
                         EmitVertex();
 
                         gl_Position = gl_in[0].gl_Position;
@@ -598,9 +634,9 @@ void render_pipeline_initialize(RenderPipelineData* const r_data,
                         EmitVertex();
 
                         float next_ang = TWO_PI / 10.0 * (i+1);
-                        vec4 next_offset = vec4(cos(next_ang) * RADIUS, -sin(next_ang) * RADIUS, 0.0, 0.0);
+                        vec4 next_offset = vec4(cos(next_ang) * radius, -sin(next_ang) * radius, 0.0, 0.0);
                         gl_Position = gl_in[0].gl_Position + next_offset;
-                        GeomColor = 0.1 * vColor;
+                        GeomColor = 0.2 * vColor;
                         EmitVertex();
                     }
 
@@ -623,7 +659,7 @@ void render_pipeline_initialize(RenderPipelineData* const r_data,
     glBindVertexArray(r_data->planets_vao);
     glGenBuffers(1, &r_data->planets_vbo);
     glBindBuffer(GL_ARRAY_BUFFER, r_data->planets_vbo);
-    glBufferData(GL_ARRAY_BUFFER, 2 * planets->n_max * sizeof(Vec2), 0, GL_DYNAMIC_DRAW);
+    glBufferData(GL_ARRAY_BUFFER, planets->n_max * sizeof(Vec2), 0, GL_DYNAMIC_DRAW);
 
     // Setup vertex buffer for lines
     glGenVertexArrays(1, &r_data->environment_vao);
@@ -713,8 +749,33 @@ void render_pipeline_draw_lines(const GLuint vao, const GLuint vbo, const Line* 
 
 void render_pipeline_draw_planets(RenderPipelineData* const r_data, const Planets* const planets)
 {
+    const int n_points = planets->n_active;
     glUseProgram(r_data->planets_shader);
-    render_pipeline_draw_points(r_data->planets_vao, r_data->planets_vbo, planets->positions, planets->n_active);
+    glBindVertexArray(r_data->planets_vao);
+    glBindBuffer(GL_ARRAY_BUFFER, r_data->planets_vbo);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(
+        0,                  // attribute 0. No particular reason for 0, but must match the layout in the shader.
+        2,                  // size
+        GL_FLOAT,           // type
+        GL_FALSE,           // normalized?
+        sizeof(float) * 2,  // stride
+        (void*)0            // array buffer offset
+    );
+    glBufferSubData(GL_ARRAY_BUFFER, 0, n_points * sizeof(Vec2), planets->positions);
+
+    // Pack age/mass properties into a "vec2" as [age0, mass0, age1, mass1, ...]
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(
+        1,                  // attribute 1. No particular reason for 1, but must match the layout in the shader.
+        2,                  // size
+        GL_FLOAT,           // type
+        GL_FALSE,           // normalized?
+        sizeof(float) * 2,  // stride
+        (void*)(n_points * sizeof(Vec2)) // array buffer offset
+    );
+    glBufferSubData(GL_ARRAY_BUFFER, n_points * sizeof(Vec2), n_points * sizeof(Vec2), planets->properties);
+    glDrawArrays(GL_POINTS, 0, n_points);
 }
 
 void render_pipeline_draw_particles(RenderPipelineData* const r_data, const Particles* const particles)
@@ -922,6 +983,9 @@ int main(int, char**)
 
         // Apply planet gravity to particles
         planets_apply_to_particles(&planets, &env, &particles);
+
+        // Do planet update
+        planets_update(&planets, dt);
 
         // Do particle update
         particles_update(&particles, &env, dt);
