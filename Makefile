@@ -54,7 +54,7 @@ ifeq ($(UNAME_S), Linux) #LINUX
 	LIBS += $(LINUX_GL_LIBS) `pkg-config --static --libs glfw3`
 
 	CXXFLAGS += `pkg-config --cflags glfw3`
-	CXXFLAGS += "-DPLATFORM_SUPPORT_AUDIO"
+	CXXFLAGS += "-DPLATFORM_SUPPORTS_AUDIO"
 	CFLAGS = $(CXXFLAGS)
 endif
 
@@ -75,6 +75,8 @@ ifeq ($(OS), Windows_NT)
 	CXXFLAGS += `pkg-config --cflags glfw3`
 	CXXFLAGS += -DPLATFORM_WINDOWS
 	CFLAGS = $(CXXFLAGS)
+
+	## TODO : [ADD OPENAL FLAGS FOR WINDOWS]
 endif
 
 ##---------------------------------------------------------------------
