@@ -21,6 +21,8 @@ SOURCES += $(IMGUI_DIR)/imgui.cpp $(IMGUI_DIR)/imgui_demo.cpp $(IMGUI_DIR)/imgui
 SOURCES += $(IMGUI_DIR)/backends/imgui_impl_glfw.cpp $(IMGUI_DIR)/backends/imgui_impl_opengl3.cpp
 OBJS = $(addsuffix .o, $(basename $(notdir $(SOURCES))))
 UNAME_S := $(shell uname -s)
+
+LINUX_AL_LIBS = -lopenal -laudio
 LINUX_GL_LIBS = -lGL
 
 CXXFLAGS = -I$(IMGUI_DIR) -I$(IMGUI_DIR)/backends -I./utility
@@ -31,6 +33,7 @@ ifeq ($(DEBUG),yes)
   CXXFLAGS += -O0
 else
   CXXFLAGS += -O3
+  CXXFLAGS += -DNDEBUG=1
 endif
 
 ##---------------------------------------------------------------------
@@ -47,9 +50,11 @@ endif
 
 ifeq ($(UNAME_S), Linux) #LINUX
 	ECHO_MESSAGE = "Linux"
+	LIBS += $(LINUX_AL_LIBS)
 	LIBS += $(LINUX_GL_LIBS) `pkg-config --static --libs glfw3`
 
 	CXXFLAGS += `pkg-config --cflags glfw3`
+	CXXFLAGS += "-DPLATFORM_SUPPORT_AUDIO"
 	CFLAGS = $(CXXFLAGS)
 endif
 
