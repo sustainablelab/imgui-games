@@ -57,14 +57,6 @@ void integrate_states_fixed_step(Vec2* positions, Vec2* velocities, Vec2* accele
 }
 
 
-void get_cursor_position_normalized(Vec2* const cursor_position, GLFWwindow* const window, const int display_w, const int display_h)
-{
-    double xpos, ypos;
-    glfwGetCursorPos(window, &xpos, &ypos);
-    cursor_position->x = 2.f * ((float)xpos / (float)display_w) - 1.f;
-    cursor_position->y = 1.f - 2.f * ((float)ypos / (float)display_h);
-}
-
 static const int N_ENVIRONMENT_LINES_MAX = 10;
 
 struct Environment
@@ -460,11 +452,19 @@ struct RenderPipelineData
     GLuint planets_vao;
     GLuint planets_vbo;
 
+    GLuint environment_shader;
     GLuint environment_vao;
     GLuint environment_vbo;
+
+    float aspect_ratio;
+    float display_h;
+    float display_w;
+
+    GLFWwindow* window;
 };
 
 void render_pipeline_initialize(RenderPipelineData* const r_data,
+                                GLFWwindow* const window,
                                 const Planets* const planets,
                                 const Particles* const particles,
                                 const Environment* const environment)
@@ -516,11 +516,19 @@ void render_pipeline_initialize(RenderPipelineData* const r_data,
                 layout(points) in;
                 layout(triangle_strip, max_vertices = 40) out;
 
+                uniform float uAspectRatio;
+
                 in vec4[] VertColor;
                 out vec4 GeomColor;
 
                 const float TWO_PI = 2.0 * 3.1415926;
                 const float RADIUS = 0.01;
+
+                vec4 apply_aspect_ratio(vec4 position, float ratio)
+                {
+                    return vec4(position[0] * ratio, position[1], position[2], position[3]);
+                }
+
                 void main()
                 {
                     vec4 vColor = VertColor[0];
@@ -528,17 +536,17 @@ void render_pipeline_initialize(RenderPipelineData* const r_data,
                     for (int i = 0; i <= 9; i++) {
                         float curr_ang = TWO_PI / 10.0 * (i+0);
                         vec4 curr_offset = vec4(cos(curr_ang) * RADIUS, -sin(curr_ang) * RADIUS, 0.0, 0.0);
-                        gl_Position = gl_in[0].gl_Position + curr_offset;
+                        gl_Position = apply_aspect_ratio(gl_in[0].gl_Position + curr_offset, uAspectRatio);
                         GeomColor = 0.5 * vColor;
                         EmitVertex();
 
-                        gl_Position = gl_in[0].gl_Position;
+                        gl_Position = apply_aspect_ratio(gl_in[0].gl_Position, uAspectRatio);
                         GeomColor = vColor;
                         EmitVertex();
 
                         float next_ang = TWO_PI / 10.0 * (i+1);
                         vec4 next_offset = vec4(cos(next_ang) * RADIUS, -sin(next_ang) * RADIUS, 0.0, 0.0);
-                        gl_Position = gl_in[0].gl_Position + next_offset;
+                        gl_Position = apply_aspect_ratio(gl_in[0].gl_Position + next_offset, uAspectRatio);
                         GeomColor = 0.5 * vColor;
                         EmitVertex();
                     }
@@ -608,6 +616,8 @@ void render_pipeline_initialize(RenderPipelineData* const r_data,
                 layout(points) in;
                 layout(triangle_strip, max_vertices = 40) out;
 
+                uniform float uAspectRatio;
+
                 in vData
                 {
                    vec4 color;
@@ -620,6 +630,12 @@ void render_pipeline_initialize(RenderPipelineData* const r_data,
                 const float TWO_PI = 2.0 * 3.1415926;
                 const float RADIUS_MIN = 0.15;
                 const float RADIUS_DELTA = 0.025;
+
+                vec4 apply_aspect_ratio(vec4 position, float ratio)
+                {
+                    return vec4(position[0] * ratio, position[1], position[2], position[3]);
+                }
+
                 void main()
                 {
                     vec4 vColor = VertProps[0].color;
@@ -630,17 +646,17 @@ void render_pipeline_initialize(RenderPipelineData* const r_data,
                     for (int i = 0; i <= 9; i++) {
                         float curr_ang = TWO_PI / 10.0 * (i+0);
                         vec4 curr_offset = vec4(cos(curr_ang) * radius, -sin(curr_ang) * radius, 0.0, 0.0);
-                        gl_Position = gl_in[0].gl_Position + curr_offset;
+                        gl_Position = apply_aspect_ratio(gl_in[0].gl_Position + curr_offset, uAspectRatio);
                         GeomColor = 0.2 * vColor;
                         EmitVertex();
 
-                        gl_Position = gl_in[0].gl_Position;
+                        gl_Position = apply_aspect_ratio(gl_in[0].gl_Position, uAspectRatio);
                         GeomColor = vColor;
                         EmitVertex();
 
                         float next_ang = TWO_PI / 10.0 * (i+1);
                         vec4 next_offset = vec4(cos(next_ang) * radius, -sin(next_ang) * radius, 0.0, 0.0);
-                        gl_Position = gl_in[0].gl_Position + next_offset;
+                        gl_Position = apply_aspect_ratio(gl_in[0].gl_Position + next_offset, uAspectRatio);
                         GeomColor = 0.2 * vColor;
                         EmitVertex();
                     }
@@ -666,6 +682,45 @@ void render_pipeline_initialize(RenderPipelineData* const r_data,
     glBindBuffer(GL_ARRAY_BUFFER, r_data->planets_vbo);
     glBufferData(GL_ARRAY_BUFFER, planets->n_max * sizeof(Vec2), 0, GL_DYNAMIC_DRAW);
 
+    // Create shader for environment
+    {
+        const GLuint vert_shader = create_shader_source(
+            GL_VERTEX_SHADER,
+            R"VertexShader(
+                #version 330 core
+                layout (location = 0) in vec2 aPos;
+
+                uniform float uAspectRatio;
+                out vec4 vFragColor;
+
+                void main()
+                {
+                    gl_Position = vec4(uAspectRatio * aPos.x, aPos.y, 0.0, 1.0);
+                    vFragColor = vec4(1, 1, 1, 1);
+                }
+            )VertexShader"
+        );
+        const GLuint frag_shader = create_shader_source(
+            GL_FRAGMENT_SHADER,
+            R"FragmentShader(
+                #version 330 core
+                in vec4 vFragColor;
+                out vec4 FragColor;
+                void main()
+                {
+                    FragColor = vFragColor;
+                }
+            )FragmentShader"
+        );
+
+        // Link shaders into program
+        r_data->environment_shader = link_shader_program(vert_shader, frag_shader, nullptr);
+
+        // Cleanup shader source
+        glDeleteShader(vert_shader);
+        glDeleteShader(frag_shader);
+    }
+
     // Setup vertex buffer for lines
     glGenVertexArrays(1, &r_data->environment_vao);
     glBindVertexArray(r_data->environment_vao);
@@ -676,6 +731,18 @@ void render_pipeline_initialize(RenderPipelineData* const r_data,
     // Unset VBO/VAO
     glBindBuffer(GL_ARRAY_BUFFER, 0);
     glBindVertexArray(0);
+
+    r_data->aspect_ratio = 1.f;
+    r_data->display_h = 600;
+    r_data->display_w = 600;
+    r_data->window = window;
+}
+
+void render_pipeline_update(RenderPipelineData* const r_data, const int display_w, const int display_h)
+{
+    r_data->display_w = display_w;
+    r_data->display_h = display_h;
+    r_data->aspect_ratio  = ((float)display_h) / ((float)display_w);
 }
 
 void render_pipeline_destroy(RenderPipelineData* const r_data)
@@ -686,6 +753,9 @@ void render_pipeline_destroy(RenderPipelineData* const r_data)
     glDeleteBuffers(1, &r_data->particles_vbo);
     glDeleteBuffers(1, &r_data->planets_vbo);
     glDeleteBuffers(1, &r_data->environment_vbo);
+    glDeleteProgram(r_data->particles_shader);
+    glDeleteProgram(r_data->planets_shader);
+    glDeleteProgram(r_data->environment_shader);
 }
 
 void render_pipeline_draw_points(const GLuint vao, const GLuint vbo, const Vec2* const points, const int n_points)
@@ -756,6 +826,7 @@ void render_pipeline_draw_planets(RenderPipelineData* const r_data, const Planet
 {
     const int n_points = planets->n_active;
     glUseProgram(r_data->planets_shader);
+    glUniform1f(glGetUniformLocation(r_data->planets_shader, "uAspectRatio"), r_data->aspect_ratio);
     glBindVertexArray(r_data->planets_vao);
     glBindBuffer(GL_ARRAY_BUFFER, r_data->planets_vbo);
     glEnableVertexAttribArray(0);
@@ -786,13 +857,25 @@ void render_pipeline_draw_planets(RenderPipelineData* const r_data, const Planet
 void render_pipeline_draw_particles(RenderPipelineData* const r_data, const Particles* const particles)
 {
     glUseProgram(r_data->particles_shader);
+    glUniform1f(glGetUniformLocation(r_data->particles_shader, "uAspectRatio"), r_data->aspect_ratio);
     render_pipeline_draw_points_with_direction(r_data->particles_vao, r_data->particles_vbo, particles->positions, particles->velocities, particles->n_active);
 }
 
 void render_pipeline_draw_environment(RenderPipelineData* const r_data, const Environment* const env)
 {
-    glUseProgram(0);
+    glUseProgram(r_data->environment_shader);
+    glUniform1f(glGetUniformLocation(r_data->environment_shader, "uAspectRatio"), r_data->aspect_ratio);
     render_pipeline_draw_lines(r_data->environment_vao, r_data->environment_vbo, env->boundaries, env->n_boundaries);
+}
+
+Vec2 render_pipeline_get_screen_mouse_position(RenderPipelineData* const r_data)
+{
+    Vec2 cursor_position;
+    double xpos_raw, ypos_raw;
+    glfwGetCursorPos(r_data->window, &xpos_raw, &ypos_raw);
+    cursor_position.x = (2.f * ((float)xpos_raw / r_data->display_w) - 1.f) / r_data->aspect_ratio;
+    cursor_position.y = (1.f - 2.f * ((float)ypos_raw / r_data->display_h));
+    return cursor_position;
 }
 
 int main(int, char**)
@@ -901,6 +984,7 @@ int main(int, char**)
     RenderPipelineData render_pipeline_data;
     render_pipeline_initialize(
         &render_pipeline_data,
+        window,
         &planets,
         &particles,
         &env
@@ -941,37 +1025,37 @@ int main(int, char**)
         // Spawn single particle on click
         else if (input_state.current.fields.left_ctrl && input_state.pressed.fields.left_mouse_button)
         {
-            Vec2 p;
-            get_cursor_position_normalized(&p, window, display_w, display_h);
-            particles_spawn_at(&particles, p);
+            const Vec2 mouse_position_world =
+                render_pipeline_get_screen_mouse_position(&render_pipeline_data);
+            particles_spawn_at(&particles, mouse_position_world);
         }
         // Spew particles from mouse
         else if (input_state.current.fields.left_shift && input_state.current.fields.left_mouse_button)
         {
-            Vec2 p;
-            get_cursor_position_normalized(&p, window, display_w, display_h);
-            particles_spawn_at(&particles, p);
+            const Vec2 mouse_position_world =
+                render_pipeline_get_screen_mouse_position(&render_pipeline_data);
+            particles_spawn_at(&particles, mouse_position_world);
         }
         // Spawn single planet on click
         else if (input_state.pressed.fields.left_mouse_button)
         {
-            Vec2 p;
-            get_cursor_position_normalized(&p, window, display_w, display_h);
+            const Vec2 mouse_position_world =
+                render_pipeline_get_screen_mouse_position(&render_pipeline_data);
 
             if (next_planet_assymetric_grav)
             {
-                planets_spawn_at(&planets, p, Vec2{0, 1}, next_planet_mass);
+                planets_spawn_at(&planets, mouse_position_world, Vec2{0, 1}, next_planet_mass);
             }
             else
             {
-                planets_spawn_at(&planets, p, Vec2{0, 0}, next_planet_mass);
+                planets_spawn_at(&planets, mouse_position_world, Vec2{0, 0}, next_planet_mass);
             }
         }
         // Spawn / grab single planet which follows the cursor
         else if (input_state.current.fields.key_f)
         {
-            Vec2 mouse_position_world;
-            get_cursor_position_normalized(&mouse_position_world, window, display_w, display_h);
+            const Vec2 mouse_position_world =
+                render_pipeline_get_screen_mouse_position(&render_pipeline_data);
             if (planets.n_active > 0)
             {
                 planets.positions[0] = mouse_position_world;
@@ -1035,6 +1119,7 @@ int main(int, char**)
         glClear(GL_COLOR_BUFFER_BIT);
 
         // Draw lines to screen
+        render_pipeline_update(&render_pipeline_data, display_w, display_h);
         render_pipeline_draw_environment(&render_pipeline_data, &env);
         render_pipeline_draw_planets(&render_pipeline_data, &planets);
         render_pipeline_draw_particles(&render_pipeline_data, &particles);
