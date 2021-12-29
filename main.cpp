@@ -1,16 +1,24 @@
+// C++ Standard Library
+#include <cmath>
+#include <cstring>
+#include <cstdlib>
+#include <cstdio>
+
+// ImGui
 #include "imgui.h"
 #include "imgui_impl_glfw.h"
 #include "imgui_impl_opengl3.h"
-#include <stdio.h>
 
 // Utility
 #include "math.inl"
 #include "graphics.inl"
 
-// C++ Standard Library
-#include <cmath>
-#include <cstring>
-#include <cstdlib>
+// OpenAL
+#if defined(PLATFORM_SUPPORT_AUDIO)
+#include <AL/al.h>
+#include <AL/alc.h>
+#include <audio/wave.h>
+#endif  // defined(PLATFORM_SUPPORT_AUDIO)
 
 // TODO
 //
@@ -986,8 +994,160 @@ Vec2 render_pipeline_get_screen_mouse_position(RenderPipelineData* const r_data)
     return cursor_position;
 }
 
+
+static inline ALenum to_al_format(short channels, short samples)
+{
+    bool stereo = (channels > 1);
+
+    switch (samples) {
+    case 16:
+        if (stereo)
+            return AL_FORMAT_STEREO16;
+        else
+            return AL_FORMAT_MONO16;
+    case 8:
+        if (stereo)
+            return AL_FORMAT_STEREO8;
+        else
+            return AL_FORMAT_MONO8;
+    default:
+        return -1;
+    }
+}
+
+static inline const char* al_error_to_str(const ALenum error)
+{
+    switch (error)
+    {
+        case AL_NO_ERROR: return "AL_NO_ERROR";
+        case AL_INVALID_NAME: return "AL_INVALID_NAME";
+        case AL_INVALID_ENUM: return "AL_INVALID_ENUM";
+        case AL_INVALID_VALUE: return "AL_INVALID_VALUE";
+        case AL_INVALID_OPERATION: return "AL_INVALID_OPERATION";
+        case AL_OUT_OF_MEMORY: return "AL_OUT_OF_MEMORY";
+    }
+    return "I have no idea...";
+}
+
+#ifndef NDEBUG
+    #define AL_TEST_ERROR_RET(statement, retval) {       \
+        (statement);\
+        const ALCenum al_error = alGetError();  \
+        if (al_error != AL_NO_ERROR) {  \
+            fprintf(stderr, "FAILED: " #statement " :: (%s) \n", al_error_to_str(al_error)); \
+            return retval;                   \
+        }\
+        else\
+        {\
+            fprintf(stderr, "PASSED: " #statement "\n");\
+        }}
+#else
+    #define AL_TEST_ERROR_RET(statement, _) statement
+#endif // NDEBUG
+
+#define AL_TEST_ERROR(statement) AL_TEST_ERROR_RET(statement, -1)
+
+
+ALuint read_wav_file_to_buffer(const char* filename)
+{
+    ALuint buffer;
+    AL_TEST_ERROR_RET(alGenBuffers(1, &buffer), AL_NONE);
+
+    /* load data */
+    WaveInfo* const wave = WaveOpenFileForReading(filename);
+    if (wave == nullptr)
+    {
+        std::printf("[read_wav_file_to_buffer] FILENAME (%s) NOT FOUND", filename);
+        return AL_NONE;
+    }
+
+    {
+        const int retcode = WaveSeekFile(0, wave);
+        if (retcode)
+        {
+            std::printf("[read_wav_file_to_buffer] FAILED TO SEEK WAVEFILE");
+            return AL_NONE;
+        }
+    }
+
+    char* const buffer_data = (char*)std::malloc(wave->dataSize);
+    if (buffer_data == nullptr)
+    {
+        std::printf("[read_wav_file_to_buffer] FAILED ALLOCATE MEMORY FOR WAVE");
+        return AL_NONE;
+    }
+
+    {
+        const unsigned read_size = WaveReadFile(buffer_data, wave->dataSize, wave);
+        if (read_size != wave->dataSize)
+        {
+            std::printf("[read_wav_file_to_buffer] SHORT READ FOR WAVE FILE (%d) VS EXPECTED (%d)", read_size, wave->dataSize);
+            return AL_NONE;
+        }
+    }
+
+    AL_TEST_ERROR_RET(alBufferData(buffer, to_al_format(wave->channels, wave->bitsPerSample), buffer_data, wave->dataSize, wave->sampleRate), AL_NONE);
+    std::free(buffer_data);
+    return buffer;
+}
+
+
+
 int main(int, char**)
 {
+    // Setup audio device
+    ALCdevice* const audio_device = alcOpenDevice(alcGetString(NULL, ALC_DEVICE_SPECIFIER));
+    if (audio_device == nullptr)
+    {
+        std::printf("Unable to initialize default audio device\n");
+        return -1;
+    }
+    else
+    {
+        std::printf("Initialized default audio device: %s\n", alcGetString(audio_device, ALC_DEVICE_SPECIFIER));
+    }
+
+    // Create audio context
+    ALCcontext* const audio_context = alcCreateContext(audio_device, NULL);
+    if (alcMakeContextCurrent(audio_context))
+    {
+        std::printf("Prepared audio context\n");
+    }
+    else
+    {
+        std::printf("Failed to prepare audio context\n");
+        return -1;
+    }
+
+    // Set audio listener
+    {
+        AL_TEST_ERROR(alListener3f(AL_POSITION, 0, 0, 1.0f));
+        AL_TEST_ERROR(alListener3f(AL_VELOCITY, 0, 0, 0));
+        const ALfloat listenerOri[] = { 0.0f, 0.0f, 1.0f, 0.0f, 1.0f, 0.0f };
+        AL_TEST_ERROR(alListenerfv(AL_ORIENTATION, listenerOri));
+    }
+
+    // Prepare audio sources
+    ALuint audio_sources[16];
+    AL_TEST_ERROR(alGenSources((ALuint)16, audio_sources));
+    for (int i = 0; i < 16; ++i)
+    {
+        AL_TEST_ERROR(alSourcef(audio_sources[i], AL_PITCH, 0.5 * (i + 1)));
+        AL_TEST_ERROR(alSourcef(audio_sources[i], AL_GAIN, 1.f / 16.f));
+        AL_TEST_ERROR(alSource3f(audio_sources[i], AL_POSITION, 0, 0, 0));
+        AL_TEST_ERROR(alSource3f(audio_sources[i], AL_VELOCITY, 0, 0, 0));
+        AL_TEST_ERROR(alSourcei(audio_sources[i], AL_LOOPING, AL_TRUE));
+    }
+
+    // Load sounds
+    ALuint test_sound_buffer = read_wav_file_to_buffer("test.wav");
+    if (test_sound_buffer == AL_NONE)
+    {
+        std::printf("Failed generate audio buffer\n");
+        alcCloseDevice(audio_device);
+        return -1;
+    }
+
     // Setup window
     glfwSetErrorCallback(glfw_error_callback);
     if (!glfwInit())
@@ -1190,6 +1350,35 @@ int main(int, char**)
         // Do particle update
         particles_update(&particles, &env, dt);
 
+        // Play sounds based on positions
+        unsigned in_zone[16];
+        std::memset(in_zone, 0, sizeof(unsigned) * 16);
+        for (int i = 0; i < particles.n_active; ++i)
+        {
+            const int xd = ((particles.positions + i)->x + 1.f) / 0.5f;
+            const int yd = ((particles.positions + i)->y + 1.f) / 0.5f;
+            in_zone[xd * 4 + yd] += 1;
+        }
+        for (int z = 0; z < 16; ++z)
+        {
+            ALint source_state;
+            AL_TEST_ERROR(alGetSourcei(audio_sources[z], AL_SOURCE_STATE, &source_state));
+            if ((in_zone[z] != 0))
+            {
+                if (source_state != AL_PLAYING)
+                {
+                    AL_TEST_ERROR(alSourcei(audio_sources[z], AL_BUFFER, test_sound_buffer));
+                    AL_TEST_ERROR(alSourcePlay(audio_sources[z]));
+                }
+                const float gain = std::fmin(1.f, (float)in_zone[z] / 16.f);
+                AL_TEST_ERROR(alSourcef(audio_sources[z], AL_GAIN, 0.1f * gain));
+            }
+            else if ((in_zone[z] == 0) && (source_state == AL_PLAYING))
+            {
+                AL_TEST_ERROR(alSourceStop(audio_sources[z]));
+            }
+        }
+
         // Create a window called "Hello, world!" and append into it.
         ImGui::Text("Controls");
         ImGui::Dummy(ImVec2{1, 30});
@@ -1254,6 +1443,13 @@ int main(int, char**)
     planets_destroy(&planets);
     particles_destroy(&particles);
     environment_destroy(&env);
+
+    // Cleanup audio
+    alDeleteSources(16, audio_sources);
+    alDeleteBuffers(1, &test_sound_buffer);
+    alcMakeContextCurrent(NULL);
+    alcDestroyContext(audio_context);
+    alcCloseDevice(audio_device);
 
     return 0;
 }
