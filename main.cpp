@@ -789,6 +789,8 @@ int main(int, char**)
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
 
+        ImGui::ShowMetricsWindow();
+
         // See OpenGL error callback
         ImGui::Begin("OpenGL Error Place");
         ImGui::End();
@@ -830,6 +832,7 @@ int main(int, char**)
         ImGui::End();
 
         glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+        /* glBindTexture(GL_TEXTURE_2D, TOF); */
 
         // Draw lines to screen
         render_pipeline_draw_points(&render_pipeline_data, ps.positions, ps.n_active);
@@ -849,6 +852,8 @@ int main(int, char**)
                 (ImTextureID)&TOF, // user_texture_id,
                 ImVec2{500,500} // const ImVec2& size
                 );
+        /* ImDrawList* drawList = ImGui::GetWindowDrawList(); */
+        /* drawList-> */
         ImGui::End();
 
 
