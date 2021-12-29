@@ -271,17 +271,10 @@ void particles_update(Particles* const ps, const Environment* const env, const f
         }
     }
 
-<<<<<<< HEAD
     // Apply hard limits on velocities
     for (int i = 0; i < ps->n_active; ++i)
     {
         vec2_clamp(ps->velocities + i, -(ps->max_velocity), ps->max_velocity);
-=======
-    // Apply hard screen limits on velocity
-    for (int i = 0; i < ps->n_active; ++i)
-    {
-        vec2_clamp(ps->velocities + i, -ps->max_velocity, ps->max_velocity);
->>>>>>> 1e59df2... Adds experimental "no-force" boundaries
     }
 
     // Apply hard screen limits on position
