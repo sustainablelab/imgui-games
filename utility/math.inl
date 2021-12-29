@@ -118,6 +118,11 @@ inline float vec2_length_squared(Vec2* const src)
     return vec2_dot(src, src);
 }
 
+inline float vec2_length_manhattan(Vec2* const src)
+{
+    return std::abs(src->x) + std::abs(src->y);
+}
+
 inline float vec2_dist_squared(Vec2* const lhs, Vec2* const rhs)
 {
     const float dx = lhs->x - rhs->x;
