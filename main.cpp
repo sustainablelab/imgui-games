@@ -340,7 +340,7 @@ void planets_apply_to_particles(const Planets* const planets, const Environment*
             delta.y = (planets->positions + p)->y - (ps->positions + i)->y;
 
             // Normalize the force
-            const float r_sq = (1.f + vec2_length_squared(&delta));
+            const float r_sq = (0.1f + vec2_length_squared(&delta));
             vec2_scale_compound_add(ps->forces + i, &delta, *(planets->masses + p) / r_sq);
         }
     }
@@ -584,7 +584,7 @@ int main(int, char**)
     user_input_state_initialized(&input_state, window);
 
     float point_size = 3.f;
-    float planet_mass = 0.1f;
+    float next_planet_mass = 0.1f;
 
     // Main loop
     while (!glfwWindowShouldClose(window))
@@ -627,9 +627,7 @@ int main(int, char**)
         {
             Vec2 p;
             get_cursor_position_normalized(&p, window, display_w, display_h);
-            planets_spawn_at(&planets, p, planet_mass);
-
-            planet_mass += 0.1f;
+            planets_spawn_at(&planets, p, next_planet_mass);
         }
 
         // Apply planet gravity to particles
@@ -643,7 +641,8 @@ int main(int, char**)
         ImGui::Text("Boundaries : (%d)", env.n_boundaries);
         ImGui::InputFloat2("gravity", (float*)(&env.gravity));
         ImGui::SliderFloat("dampening", &env.dampening, 0.1f, 1.f);
-        ImGui::SliderFloat("max_velocity", &particles.max_velocity, 0.5f, 5.f);
+        ImGui::SliderFloat("max particle velocity", &particles.max_velocity, 0.5f, 5.f);
+        ImGui::SliderFloat("next planet mass", &next_planet_mass, 0.1f, 2.f);
         if (ImGui::SliderFloat("point size", &point_size, 1.f, 20.f))
         {
             glPointSize(point_size);
