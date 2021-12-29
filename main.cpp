@@ -658,6 +658,12 @@ int main(int, char**)
         particles_update(&particles, &env, dt);
 
         // Create a window called "Hello, world!" and append into it.
+        ImGui::Text("Controls");
+        ImGui::Dummy(ImVec2{1, 30});
+        ImGui::Text("L-CTRL  + LMB : Spawn a single particle");
+        ImGui::Text("L-SHIFT + LMB : Spawn a MANY particles");
+        ImGui::Text("          LMB : Spawn a planet");
+        ImGui::Dummy(ImVec2{1, 30});
         ImGui::Text("Particles  : (%d)", particles.n_active);
         ImGui::Text("Boundaries : (%d)", env.n_boundaries);
         ImGui::InputFloat2("gravity", (float*)(&env.gravity));
