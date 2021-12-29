@@ -2,16 +2,10 @@
 #include "imgui_impl_glfw.h"
 #include "imgui_impl_opengl3.h"
 #include <stdio.h>
-/* #include "imgui_impl_opengl3_loader.h" */
-#if defined(BOB)
-#include <GL/glew.h>
-#else
-#include <GLES3/gl3.h>
-#endif
-#include <GLFW/glfw3.h> // Will drag system OpenGL headers
 
 // Utility
 #include "math.inl"
+#include "graphics.inl"
 
 // C++ Standard Library
 #include <cmath>
@@ -423,23 +417,183 @@ void user_input_state_update(UserInputState* const state, GLFWwindow* const wind
 
 struct RenderPipelineData
 {
+    GLuint particles_shader;
     GLuint particles_vao;
     GLuint particles_vbo;
+
+    GLuint planets_shader;
     GLuint planets_vao;
     GLuint planets_vbo;
+
     GLuint environment_vao;
     GLuint environment_vbo;
 };
 
 void render_pipeline_initialize(RenderPipelineData* const r_data)
 {
-    glPointSize(3.f);
+    // Enable alpha blending
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+    // Create shader for particles
+    {
+        const GLuint vert_shader = create_shader_source(
+            GL_VERTEX_SHADER,
+            R"VertexShader(
+                #version 330 core
+                layout (location = 0) in vec2 aPos;
+
+                out vec4 VertColor;
+
+                void main()
+                {
+                    gl_Position = vec4(aPos.x, aPos.y, 0.0, 1.0);
+                    VertColor = vec4(0.7, 0.7, 1.0, 1);
+                }
+            )VertexShader"
+        );
+        const GLuint frag_shader = create_shader_source(
+            GL_FRAGMENT_SHADER,
+            R"FragmentShader(
+                #version 330 core
+                out vec4 FragColor;
+                in vec4 GeomColor;
+                void main()
+                {
+                    FragColor = GeomColor;
+                }
+            )FragmentShader"
+        );
+        const GLuint geom_shader = create_shader_source(
+            GL_GEOMETRY_SHADER,
+            R"FragmentShader(
+                #version 330 core
+                layout(points) in;
+                layout(triangle_strip, max_vertices = 40) out;
+
+                in vec4[] VertColor;
+                out vec4 GeomColor;
+
+                const float TWO_PI = 2.0 * 3.1415926;
+                const float RADIUS = 0.01;
+                void main()
+                {
+                    vec4 vColor = VertColor[0];
+
+                    for (int i = 0; i <= 9; i++) {
+                        float curr_ang = TWO_PI / 10.0 * (i+0);
+                        vec4 curr_offset = vec4(cos(curr_ang) * RADIUS, -sin(curr_ang) * RADIUS, 0.0, 0.0);
+                        gl_Position = gl_in[0].gl_Position + curr_offset;
+                        GeomColor = 0.1 * vColor;
+                        EmitVertex();
+
+                        gl_Position = gl_in[0].gl_Position;
+                        GeomColor = vColor;
+                        EmitVertex();
+
+                        float next_ang = TWO_PI / 10.0 * (i+1);
+                        vec4 next_offset = vec4(cos(next_ang) * RADIUS, -sin(next_ang) * RADIUS, 0.0, 0.0);
+                        gl_Position = gl_in[0].gl_Position + next_offset;
+                        GeomColor = 0.1 * vColor;
+                        EmitVertex();
+                    }
+
+                    EndPrimitive();
+                }
+            )FragmentShader"
+        );
+
+        // Link shaders into program
+        r_data->particles_shader = link_shader_program(vert_shader, frag_shader, &geom_shader);
+
+        // Cleanup shader source
+        glDeleteShader(vert_shader);
+        glDeleteShader(frag_shader);
+        glDeleteShader(geom_shader);
+    }
 
     // Setup vertex buffer for points
     glGenVertexArrays(1, &r_data->particles_vao);
     glBindVertexArray(r_data->particles_vao);
     glGenBuffers(1, &r_data->particles_vbo);
     glBindBuffer(GL_ARRAY_BUFFER, r_data->particles_vbo);
+
+    // Create shader for particles
+    {
+        const GLuint vert_shader = create_shader_source(
+            GL_VERTEX_SHADER,
+            R"VertexShader(
+                #version 330 core
+                layout (location = 0) in vec2 aPos;
+
+                out vec4 VertColor;
+
+                void main()
+                {
+                    gl_Position = vec4(aPos.x, aPos.y, 0.0, 1.0);
+                    VertColor = vec4(1.0, 0.5, 0.3, 1);
+                }
+            )VertexShader"
+        );
+        const GLuint frag_shader = create_shader_source(
+            GL_FRAGMENT_SHADER,
+            R"FragmentShader(
+                #version 330 core
+                out vec4 FragColor;
+                in vec4 GeomColor;
+                void main()
+                {
+                    FragColor = GeomColor;
+                }
+            )FragmentShader"
+        );
+        const GLuint geom_shader = create_shader_source(
+            GL_GEOMETRY_SHADER,
+            R"FragmentShader(
+                #version 330 core
+                layout(points) in;
+                layout(triangle_strip, max_vertices = 40) out;
+
+                in vec4[] VertColor;
+                out vec4 GeomColor;
+
+                const float TWO_PI = 2.0 * 3.1415926;
+                const float RADIUS = 0.1;
+                void main()
+                {
+                    vec4 vColor = VertColor[0];
+
+                    for (int i = 0; i <= 9; i++) {
+                        float curr_ang = TWO_PI / 10.0 * (i+0);
+                        vec4 curr_offset = vec4(cos(curr_ang) * RADIUS, -sin(curr_ang) * RADIUS, 0.0, 0.0);
+                        gl_Position = gl_in[0].gl_Position + curr_offset;
+                        GeomColor = 0.1 * vColor;
+                        EmitVertex();
+
+                        gl_Position = gl_in[0].gl_Position;
+                        GeomColor = vColor;
+                        EmitVertex();
+
+                        float next_ang = TWO_PI / 10.0 * (i+1);
+                        vec4 next_offset = vec4(cos(next_ang) * RADIUS, -sin(next_ang) * RADIUS, 0.0, 0.0);
+                        gl_Position = gl_in[0].gl_Position + next_offset;
+                        GeomColor = 0.1 * vColor;
+                        EmitVertex();
+                    }
+
+                    EndPrimitive();
+                }
+            )FragmentShader"
+        );
+
+        // Link shaders into program
+        r_data->planets_shader = link_shader_program(vert_shader, frag_shader, &geom_shader);
+
+        // Cleanup shader source
+        glDeleteShader(vert_shader);
+        glDeleteShader(frag_shader);
+        glDeleteShader(geom_shader);
+    }
 
     // Setup vertex buffer for planets
     glGenVertexArrays(1, &r_data->planets_vao);
@@ -507,16 +661,19 @@ void render_pipeline_draw_lines(const GLuint vao, const GLuint vbo, const Line* 
 
 void render_pipeline_draw_planets(RenderPipelineData* const r_data, const Planets* const planets)
 {
+    glUseProgram(r_data->planets_shader);
     render_pipeline_draw_points(r_data->planets_vao, r_data->planets_vbo, planets->positions, planets->n_active);
 }
 
 void render_pipeline_draw_particles(RenderPipelineData* const r_data, const Particles* const particles)
 {
+    glUseProgram(r_data->particles_shader);
     render_pipeline_draw_points(r_data->particles_vao, r_data->particles_vbo, particles->positions, particles->n_active);
 }
 
 void render_pipeline_draw_environment(RenderPipelineData* const r_data, const Environment* const env)
 {
+    glUseProgram(0);
     render_pipeline_draw_lines(r_data->environment_vao, r_data->environment_vbo, env->boundaries, env->n_boundaries);
 }
 
