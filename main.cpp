@@ -423,9 +423,12 @@ void user_input_state_update(UserInputState* const state, GLFWwindow* const wind
 
 struct RenderPipelineData
 {
-    GLuint particles_vba_id;
-    GLuint planets_vba_id;
-    GLuint environment_vba_id;
+    GLuint particles_vao;
+    GLuint particles_vbo;
+    GLuint planets_vao;
+    GLuint planets_vbo;
+    GLuint environment_vao;
+    GLuint environment_vbo;
 };
 
 void render_pipeline_initialize(RenderPipelineData* const r_data)
@@ -433,28 +436,42 @@ void render_pipeline_initialize(RenderPipelineData* const r_data)
     glPointSize(3.f);
 
     // Setup vertex buffer for points
-    glGenBuffers(1, &r_data->particles_vba_id);
-    glBindBuffer(GL_ARRAY_BUFFER, r_data->particles_vba_id);
+    glGenVertexArrays(1, &r_data->particles_vao);
+    glBindVertexArray(r_data->particles_vao);
+    glGenBuffers(1, &r_data->particles_vbo);
+    glBindBuffer(GL_ARRAY_BUFFER, r_data->particles_vbo);
 
     // Setup vertex buffer for planets
-    glGenBuffers(1, &r_data->planets_vba_id);
-    glBindBuffer(GL_ARRAY_BUFFER, r_data->planets_vba_id);
+    glGenVertexArrays(1, &r_data->planets_vao);
+    glBindVertexArray(r_data->planets_vao);
+    glGenBuffers(1, &r_data->planets_vbo);
+    glBindBuffer(GL_ARRAY_BUFFER, r_data->planets_vbo);
 
     // Setup vertex buffer for lines
-    glGenBuffers(1, &r_data->environment_vba_id);
-    glBindBuffer(GL_ARRAY_BUFFER, r_data->environment_vba_id);
+    glGenVertexArrays(1, &r_data->environment_vao);
+    glBindVertexArray(r_data->environment_vao);
+    glGenBuffers(1, &r_data->environment_vbo);
+    glBindBuffer(GL_ARRAY_BUFFER, r_data->environment_vbo);
+
+    // Unset VBO/VAO
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    glBindVertexArray(0);
 }
 
 void render_pipeline_destroy(RenderPipelineData* const r_data)
 {
-    glDeleteBuffers(1, &r_data->particles_vba_id);
-    glDeleteBuffers(1, &r_data->planets_vba_id);
-    glDeleteBuffers(1, &r_data->environment_vba_id);
+    glDeleteVertexArrays(1, &r_data->particles_vao);
+    glDeleteVertexArrays(1, &r_data->planets_vao);
+    glDeleteVertexArrays(1, &r_data->environment_vao);
+    glDeleteBuffers(1, &r_data->particles_vbo);
+    glDeleteBuffers(1, &r_data->planets_vbo);
+    glDeleteBuffers(1, &r_data->environment_vbo);
 }
 
-void render_pipeline_draw_points(const GLuint vbid, const Vec2* const points, const int n_points)
+void render_pipeline_draw_points(const GLuint vao, const GLuint vbo, const Vec2* const points, const int n_points)
 {
-    glBindBuffer(GL_ARRAY_BUFFER, vbid);
+    glBindVertexArray(vao);
+    glBindBuffer(GL_ARRAY_BUFFER, vbo);
     glEnableVertexAttribArray(0);
     glVertexAttribPointer(
         0,                  // attribute 0. No particular reason for 0, but must match the layout in the shader.
@@ -468,12 +485,13 @@ void render_pipeline_draw_points(const GLuint vbid, const Vec2* const points, co
     glDrawArrays(GL_POINTS, 0, n_points);
 }
 
-void render_pipeline_draw_lines(const GLuint vbid, const Line* const lines, const int n_lines)
+void render_pipeline_draw_lines(const GLuint vao, const GLuint vbo, const Line* const lines, const int n_lines)
 {
     // TODO(optimization) environment data need only be uploaded once, so glBufferData is redundant on
     //                    each update. Make a separate upload function and call on loop entry, or keep things
     //                    this way if the environment is to be dynamic
-    glBindBuffer(GL_ARRAY_BUFFER, vbid);
+    glBindVertexArray(vao);
+    glBindBuffer(GL_ARRAY_BUFFER, vbo);
     glEnableVertexAttribArray(0);
     glVertexAttribPointer(
         0,                  // attribute 0. No particular reason for 0, but must match the layout in the shader.
@@ -489,17 +507,17 @@ void render_pipeline_draw_lines(const GLuint vbid, const Line* const lines, cons
 
 void render_pipeline_draw_planets(RenderPipelineData* const r_data, const Planets* const planets)
 {
-    render_pipeline_draw_points(r_data->planets_vba_id, planets->positions, planets->n_active);
+    render_pipeline_draw_points(r_data->planets_vao, r_data->planets_vbo, planets->positions, planets->n_active);
 }
 
 void render_pipeline_draw_particles(RenderPipelineData* const r_data, const Particles* const particles)
 {
-    render_pipeline_draw_points(r_data->particles_vba_id, particles->positions, particles->n_active);
+    render_pipeline_draw_points(r_data->particles_vao, r_data->particles_vbo, particles->positions, particles->n_active);
 }
 
 void render_pipeline_draw_environment(RenderPipelineData* const r_data, const Environment* const env)
 {
-    render_pipeline_draw_lines(r_data->environment_vba_id, env->boundaries, env->n_boundaries);
+    render_pipeline_draw_lines(r_data->environment_vao, r_data->environment_vbo, env->boundaries, env->n_boundaries);
 }
 
 int main(int, char**)
