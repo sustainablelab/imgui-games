@@ -59,10 +59,17 @@ void integrate_states_fixed_step(Vec2* positions, Vec2* velocities, Vec2* accele
 
 static const int N_ENVIRONMENT_LINES_MAX = 10;
 
+struct EnvironmentBoundaryProperties
+{
+    float tail_hits;
+    float head_hits;
+};
+
 struct Environment
 {
     Line* boundaries;
     Vec2* normals;
+    EnvironmentBoundaryProperties* boundary_properties;
     int n_boundaries;
     int n_max;
 
@@ -75,12 +82,23 @@ void environment_initialize(Environment* const env, const int boundary_count)
 {
     env->boundaries = (Line*)std::malloc(sizeof(Line) * boundary_count);
     env->normals = (Vec2*)std::malloc(sizeof(Vec2) * boundary_count);
+    env->boundary_properties = (EnvironmentBoundaryProperties*)std::malloc(sizeof(EnvironmentBoundaryProperties) * boundary_count);
     env->dampening = 0.7f;
     env->gravity.x = 0.0f;
     env->gravity.y = -0.123f;
     env->boundary_thickness = 1e-3f;
     env->n_boundaries = 0;
     env->n_max = boundary_count;
+}
+
+void environment_update(Environment* const env, const float dt)
+{
+    // Decay hit accumulators over time
+    for (int l = 0; l < env->n_boundaries; ++l)
+    {
+        (env->boundary_properties + l)->tail_hits = std::fmin(50.f, std::fmax(0.f, (env->boundary_properties + l)->tail_hits - 50.f * dt));
+        (env->boundary_properties + l)->head_hits = std::fmin(50.f, std::fmax(0.f, (env->boundary_properties + l)->head_hits - 50.f * dt));
+    }
 }
 
 void environment_add_boundary(Environment* const env, const Vec2 tail, const Vec2 head)
@@ -102,6 +120,9 @@ void environment_add_boundary(Environment* const env, const Vec2 tail, const Vec
         (env->boundaries + env->n_boundaries)->tail = head;
         (env->boundaries + env->n_boundaries)->head = tail;
     }
+
+    // Initialize properties
+    std::memset(env->boundary_properties + env->n_boundaries, 0, sizeof(EnvironmentBoundaryProperties));
 
     // Compute normal for boundary
     *(env->normals + env->n_boundaries) = line_to_normal(env->boundaries + env->n_boundaries);
@@ -245,6 +266,12 @@ void particles_update(Particles* const ps, const Environment* const env, const f
                 // Reflect and dampen velocity vector
                 vec2_reflect(ps->velocities + i, ps->velocities + i, env->normals + l);
                 vec2_scale(ps->velocities + i, env->dampening);
+
+                // TODO(enhancement) count particle intersection ("hits") nearest to endpoint; for now, counting hits for both
+                // Count boundary hits when particle collide hard with boundaries
+                const float approx_energy = 0.5f * vec2_length_manhattan(ps->velocities + i);
+                (env->boundary_properties + l)->tail_hits += approx_energy;
+                (env->boundary_properties + l)->head_hits += approx_energy;
                 break;
             }
             // Particle right above boundary
@@ -267,6 +294,12 @@ void particles_update(Particles* const ps, const Environment* const env, const f
                 // Reflect and dampen velocity vector
                 vec2_reflect(ps->velocities + i, ps->velocities + i, env->normals + l);
                 vec2_scale(ps->velocities + i, env->dampening);
+
+                // TODO(enhancement) count particle intersection ("hits") nearest to endpoint; for now, counting hits for both
+                // Count boundary hits when particle collide hard with boundaries
+                const float approx_energy = 0.5f * vec2_length_manhattan(ps->velocities + i);
+                (env->boundary_properties + l)->tail_hits += approx_energy;
+                (env->boundary_properties + l)->head_hits += approx_energy;
                 break;
             }
         }
@@ -493,7 +526,7 @@ void render_pipeline_initialize(RenderPipelineData* const r_data,
                 {
                     float mag = sqrt(aVel.x * aVel.x + aVel.y * aVel.y);
                     gl_Position = vec4(aPos.x, aPos.y, 0.0, 1.0);
-                    VertColor = lerp(vec4(mag, 0.3 * mag, 1.f-mag, 1), vec4(1, 1, 1, 0.3), 0.75);
+                    VertColor = lerp(vec4(mag, 0.3 * mag, 1.f-mag, 1), vec4(1, 1, 1, 0.3), 0.9);
                 }
             )VertexShader"
         );
@@ -689,6 +722,7 @@ void render_pipeline_initialize(RenderPipelineData* const r_data,
             R"VertexShader(
                 #version 330 core
                 layout (location = 0) in vec2 aPos;
+                layout (location = 1) in float aHitCount;
 
                 uniform float uAspectRatio;
                 out vec4 vFragColor;
@@ -696,7 +730,10 @@ void render_pipeline_initialize(RenderPipelineData* const r_data,
                 void main()
                 {
                     gl_Position = vec4(uAspectRatio * aPos.x, aPos.y, 0.0, 1.0);
-                    vFragColor = vec4(1, 1, 1, 1);
+
+                    // Apply a glow to boundary lines when hit enough times
+                    float heat = min(1, aHitCount / 25.f);
+                    vFragColor = vec4(0.75 * heat + 0.25, 0.1 * heat + 0.25, 0.1 * heat + 0.25, 1);
                 }
             )VertexShader"
         );
@@ -726,7 +763,7 @@ void render_pipeline_initialize(RenderPipelineData* const r_data,
     glBindVertexArray(r_data->environment_vao);
     glGenBuffers(1, &r_data->environment_vbo);
     glBindBuffer(GL_ARRAY_BUFFER, r_data->environment_vbo);
-    glBufferData(GL_ARRAY_BUFFER, environment->n_max * sizeof(Line), 0, GL_DYNAMIC_DRAW);
+    glBufferData(GL_ARRAY_BUFFER, environment->n_max * (sizeof(Line) + sizeof(EnvironmentBoundaryProperties)), 0, GL_DYNAMIC_DRAW);
 
     // Unset VBO/VAO
     glBindBuffer(GL_ARRAY_BUFFER, 0);
@@ -861,11 +898,36 @@ void render_pipeline_draw_particles(RenderPipelineData* const r_data, const Part
     render_pipeline_draw_points_with_direction(r_data->particles_vao, r_data->particles_vbo, particles->positions, particles->velocities, particles->n_active);
 }
 
-void render_pipeline_draw_environment(RenderPipelineData* const r_data, const Environment* const env)
+void render_pipeline_draw_environment(RenderPipelineData* const r_data, const Environment* const environment)
 {
+    const int n_boundaries = environment->n_boundaries;
     glUseProgram(r_data->environment_shader);
     glUniform1f(glGetUniformLocation(r_data->environment_shader, "uAspectRatio"), r_data->aspect_ratio);
-    render_pipeline_draw_lines(r_data->environment_vao, r_data->environment_vbo, env->boundaries, env->n_boundaries);
+    glBindVertexArray(r_data->environment_vao);
+    glBindBuffer(GL_ARRAY_BUFFER, r_data->environment_vbo);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(
+        0,                  // attribute 0. No particular reason for 0, but must match the layout in the shader.
+        2,                  // size
+        GL_FLOAT,           // type
+        GL_FALSE,           // normalized?
+        sizeof(float) * 2,  // stride
+        (void*)0            // array buffer offset
+    );
+    glBufferSubData(GL_ARRAY_BUFFER, 0, n_boundaries * sizeof(Line), environment->boundaries);
+
+    // Pack age/mass properties into a "vec2" as [age0, mass0, age1, mass1, ...]
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(
+        1,                  // attribute 1. No particular reason for 1, but must match the layout in the shader.
+        1,                  // size
+        GL_FLOAT,           // type
+        GL_FALSE,           // normalized?
+        sizeof(float),      // stride
+        (void*)(n_boundaries * sizeof(Line)) // array buffer offset
+    );
+    glBufferSubData(GL_ARRAY_BUFFER, n_boundaries * sizeof(Line), n_boundaries * sizeof(Vec2), environment->boundary_properties);
+    glDrawArrays(GL_LINES, 0, 2 * n_boundaries);
 }
 
 Vec2 render_pipeline_get_screen_mouse_position(RenderPipelineData* const r_data)
@@ -1009,6 +1071,9 @@ int main(int, char**)
 
         // Update game user input stuff first
         user_input_state_update(&input_state, window);
+
+        // Update/reset environment state
+        environment_update(&env, dt);
 
         // Start the Dear ImGui frame
         ImGui_ImplOpenGL3_NewFrame();
