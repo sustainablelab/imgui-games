@@ -631,7 +631,7 @@ int main(int, char**)
 
         ImGui::Begin("Debug stuff");
 
-        // Don't allow game interation if the debug planel is hovered
+        // Don't allow game interation if the debug panel is hovered
         if (ImGui::IsWindowHovered())
         {
             // TRAP
