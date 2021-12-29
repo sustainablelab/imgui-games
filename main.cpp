@@ -238,12 +238,12 @@ void particles_update(Particles* const ps, const Environment* const env, const f
                 // Offset to a bit above the intercept point if comming from above
                 if (vec2_above_line_with_normal(env->boundaries + l, env->normals + l, ps->positions_previous + i))
                 {
-                    vec2_scale_compound_add(ps->positions + i, env->normals + l, env->boundary_thickness);
+                    vec2_scale_compound_add(ps->positions + i, env->normals + l, 3.f * env->boundary_thickness);
                 }
                 // Offset to a bit below the intercept point if comming from below
                 else
                 {
-                    vec2_scale_compound_add(ps->positions + i, env->normals + l, -env->boundary_thickness);
+                    vec2_scale_compound_add(ps->positions + i, env->normals + l, -3.f * env->boundary_thickness);
                 }
 
                 // Reflect and dampen velocity vector
@@ -256,6 +256,17 @@ void particles_update(Particles* const ps, const Environment* const env, const f
             {
                 // Set new location as last location
                 vec2_set(ps->positions + i, ps->positions_previous + i);
+
+                // Offset to a bit above the intercept point if comming from above
+                if (vec2_above_line_with_normal(env->boundaries + l, env->normals + l, ps->positions_previous + i))
+                {
+                    vec2_scale_compound_add(ps->positions + i, env->normals + l, 3.f * env->boundary_thickness);
+                }
+                // Offset to a bit below the intercept point if comming from below
+                else
+                {
+                    vec2_scale_compound_add(ps->positions + i, env->normals + l, -3.f * env->boundary_thickness);
+                }
 
                 // Reflect and dampen velocity vector
                 vec2_reflect(ps->velocities + i, ps->velocities + i, env->normals + l);
@@ -795,6 +806,12 @@ int main(int, char**)
         &env,
         Vec2{-1.0f * BOUNDARY_LIMIT, -0.5 * BOUNDARY_LIMIT},
         Vec2{+0.5f * BOUNDARY_LIMIT, -0.5 * BOUNDARY_LIMIT}
+    );
+
+    environment_add_boundary(
+        &env,
+        Vec2{-0.2f * BOUNDARY_LIMIT, -0.2 * BOUNDARY_LIMIT},
+        Vec2{+0.2f * BOUNDARY_LIMIT, +0.2 * BOUNDARY_LIMIT}
     );
 
     static const int N_PLANETS_MAX = 1000;
