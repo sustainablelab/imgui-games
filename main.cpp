@@ -724,16 +724,15 @@ void render_pipeline_initialize(RenderPipelineData* const r_data,
                 layout (location = 0) in vec2 aPos;
                 layout (location = 1) in float aHitCount;
 
-                uniform float uAspectRatio;
-                out vec4 vFragColor;
+                out vec4 vColor;
 
                 void main()
                 {
-                    gl_Position = vec4(uAspectRatio * aPos.x, aPos.y, 0.0, 1.0);
+                    gl_Position = vec4(aPos.x, aPos.y, 0.0, 1.0);
 
                     // Apply a glow to boundary lines when hit enough times
                     float heat = min(1, aHitCount / 25.f);
-                    vFragColor = vec4(0.75 * heat + 0.25, 0.1 * heat + 0.25, 0.1 * heat + 0.25, 1);
+                    vColor = vec4(heat, 0.1 * heat + 0.1, 0.1 * (1-heat) + 0.1, 1);
                 }
             )VertexShader"
         );
@@ -741,21 +740,68 @@ void render_pipeline_initialize(RenderPipelineData* const r_data,
             GL_FRAGMENT_SHADER,
             R"FragmentShader(
                 #version 330 core
-                in vec4 vFragColor;
+
+                in vec4 gFragColor;
                 out vec4 FragColor;
                 void main()
                 {
-                    FragColor = vFragColor;
+                    FragColor = gFragColor;
                 }
             )FragmentShader"
         );
 
+        const GLuint geom_shader = create_shader_source(
+            GL_GEOMETRY_SHADER,
+            R"GeometryShader(
+                #version 330 core
+
+                layout(lines) in;
+                layout(triangle_strip, max_vertices = 8) out;
+
+                uniform float uAspectRatio;
+
+                in vec4 vColor[];
+                out vec4 gFragColor;
+
+                vec4 apply_aspect_ratio(vec4 position, float ratio)
+                {
+                    return vec4(position[0] * ratio, position[1], position[2], position[3]);
+                }
+
+                void main() {
+                  vec2 g1 = vec2(gl_in[0].gl_Position);
+                  vec2 g2 = vec2(gl_in[1].gl_Position);
+                  vec2 v1 = normalize(g1 - g2) * 0.005;
+                  vec2 v2 = normalize(g2 - g1) * 0.005;
+
+                  gFragColor = vColor[0];
+                  gl_Position = apply_aspect_ratio(vec4(-v2.y + g1.x, v2.x + g1.y, 0.0, 1.0), uAspectRatio);
+                  EmitVertex();
+
+                  gFragColor = vColor[0];
+                  gl_Position = apply_aspect_ratio(vec4(v1.y + g2.x, -v1.x + g2.y, 0.0, 1.0), uAspectRatio);
+                  EmitVertex();
+
+                  gFragColor = vColor[0];
+                  gl_Position = apply_aspect_ratio(vec4(v2.y + g1.x, -v2.x + g1.y, 0.0, 1.0), uAspectRatio);
+                  EmitVertex();
+
+                  gFragColor = vColor[0];
+                  gl_Position = apply_aspect_ratio(vec4(-v1.y + g2.x, v1.x + g2.y, 0.0, 1.0), uAspectRatio);
+                  EmitVertex();
+
+                  EndPrimitive();
+                }
+            )GeometryShader"
+        );
+
         // Link shaders into program
-        r_data->environment_shader = link_shader_program(vert_shader, frag_shader, nullptr);
+        r_data->environment_shader = link_shader_program(vert_shader, frag_shader, &geom_shader);
 
         // Cleanup shader source
         glDeleteShader(vert_shader);
         glDeleteShader(frag_shader);
+        glDeleteShader(geom_shader);
     }
 
     // Setup vertex buffer for lines
