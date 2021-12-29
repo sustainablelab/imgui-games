@@ -484,11 +484,16 @@ void render_pipeline_initialize(RenderPipelineData* const r_data,
 
                 out vec4 VertColor;
 
+                vec4 lerp(vec4 lhs, vec4 rhs, float a)
+                {
+                    return lhs * a + (1-a) * rhs;
+                }
+
                 void main()
                 {
                     float mag = sqrt(aVel.x * aVel.x + aVel.y * aVel.y);
                     gl_Position = vec4(aPos.x, aPos.y, 0.0, 1.0);
-                    VertColor = vec4(mag, 0.3 * mag, 1.f-mag, 1);
+                    VertColor = lerp(vec4(mag, 0.3 * mag, 1.f-mag, 1), vec4(1, 1, 1, 0.3), 0.75);
                 }
             )VertexShader"
         );
@@ -524,7 +529,7 @@ void render_pipeline_initialize(RenderPipelineData* const r_data,
                         float curr_ang = TWO_PI / 10.0 * (i+0);
                         vec4 curr_offset = vec4(cos(curr_ang) * RADIUS, -sin(curr_ang) * RADIUS, 0.0, 0.0);
                         gl_Position = gl_in[0].gl_Position + curr_offset;
-                        GeomColor = 0.1 * vColor;
+                        GeomColor = 0.5 * vColor;
                         EmitVertex();
 
                         gl_Position = gl_in[0].gl_Position;
@@ -534,7 +539,7 @@ void render_pipeline_initialize(RenderPipelineData* const r_data,
                         float next_ang = TWO_PI / 10.0 * (i+1);
                         vec4 next_offset = vec4(cos(next_ang) * RADIUS, -sin(next_ang) * RADIUS, 0.0, 0.0);
                         gl_Position = gl_in[0].gl_Position + next_offset;
-                        GeomColor = 0.1 * vColor;
+                        GeomColor = 0.5 * vColor;
                         EmitVertex();
                     }
 
@@ -1031,8 +1036,8 @@ int main(int, char**)
 
         // Draw lines to screen
         render_pipeline_draw_environment(&render_pipeline_data, &env);
-        render_pipeline_draw_particles(&render_pipeline_data, &particles);
         render_pipeline_draw_planets(&render_pipeline_data, &planets);
+        render_pipeline_draw_particles(&render_pipeline_data, &particles);
 
         // Draw imgui stuff to screen
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
