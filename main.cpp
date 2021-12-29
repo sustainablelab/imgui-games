@@ -83,9 +83,9 @@ void environment_initialize(Environment* const env, const int boundary_count)
 {
     env->boundaries = (Line*)std::malloc(sizeof(Line) * boundary_count);
     env->normals = (Vec2*)std::malloc(sizeof(Vec2) * boundary_count);
-    env->dampening = 0.8f;
-    env->gravity.x = 0.f;
-    env->gravity.y = -1.f;
+    env->dampening = 0.7f;
+    env->gravity.x = 0.0f;
+    env->gravity.y = -0.123f;
     env->boundary_thickness = 1e-3f;
     env->n_boundaries = 0;
     env->n_max = boundary_count;
@@ -173,7 +173,7 @@ void particles_initialize(Particles* const ps, const int particle_count)
 
     ps->n_active = 0;
     ps->n_max = particle_count;
-    ps->max_velocity = 1;
+    ps->max_velocity = 1.678;
 }
 
 void particles_spawn_at(Particles* const ps, const Vec2 position)
@@ -185,6 +185,10 @@ void particles_spawn_at(Particles* const ps, const Vec2 position)
 
     // Initialize point state
     vec2_set(ps->positions + ps->n_active, &position);
+    vec2_set(ps->positions_previous + ps->n_active, &position);
+    vec2_set_zero(ps->velocities + ps->n_active);
+    vec2_set_zero(ps->velocities_previous + ps->n_active);
+    vec2_set_zero(ps->forces + ps->n_active);
 
     // Increment number of active particles
     ++ps->n_active;
@@ -841,7 +845,7 @@ int main(int, char**)
     float freq_min = 60.f;
     float dt_max = 1.f / freq_min;
     float point_size = 3.f;
-    float next_planet_mass = 0.3f;
+    float next_planet_mass = 0.33f;
     bool next_planet_assymetric_grav = false;
 
     // Main loop
