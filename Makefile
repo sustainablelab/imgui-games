@@ -87,3 +87,21 @@ $(EXE): $(OBJS)
 
 clean:
 	rm -f $(EXE) $(OBJS)
+	rm -f libs.txt
+
+.PHONY: what-compiler
+what-compiler:
+	@echo $(CXX)
+.PHONY: print-libs
+print-libs: main.cpp
+	$(CXX) $(CXXFLAGS) $< -M > libs.txt
+.PHONY: tags
+tags: main.cpp
+	ctags --c-kinds=+l --exclude=Makefile -R .
+.PHONY: lib-tags
+lib-tags: main.cpp
+	$(CXX) $(CXXFLAGS) $< -M > headers-windows.txt
+	python.exe parse-lib-tags.py
+	rm -f headers-windows.txt
+	ctags -f lib-tags --c-kinds=+p -L headers-posix.txt
+	rm -f headers-posix.txt
