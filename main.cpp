@@ -22,6 +22,103 @@ static void glfw_error_callback(int error, const char* description)
 }
 
 
+unsigned int create_shader_source(unsigned type, const char* source)
+{
+    unsigned int shader = glCreateShader(type);
+    glShaderSource(shader, 1, &source, NULL);
+    glCompileShader(shader);
+
+    int  success;
+    char infoLog[512];
+    glGetShaderiv(shader, GL_COMPILE_STATUS, &success);
+
+    if (!success)
+    {
+        printf("shader compilation failed with:\n%s", infoLog);
+        abort();
+    }
+
+    return shader;
+}
+
+unsigned link_shader_program(unsigned vert_shader, unsigned frag_shader, unsigned* geom_shader)
+{
+    unsigned program = glCreateProgram();
+    glAttachShader(program, vert_shader);
+    glAttachShader(program, frag_shader);
+    if (geom_shader != nullptr)
+    {
+        glAttachShader(program, *geom_shader);
+    }
+    glLinkProgram(program);
+
+    int success;
+    glGetProgramiv(program, GL_LINK_STATUS, &success);
+
+    if(!success)
+    {
+        char infoLog[512];
+        glGetProgramInfoLog(program, 512, NULL, infoLog);
+        printf("shader program linkage failed with:\n%s", infoLog);
+        abort();
+    }
+
+    return program;
+}
+
+unsigned create_texture_fbo_shader_program()
+{
+    const char* VertexShaderSource =
+      R"VertexShader(
+        #version 330 core
+        layout (location = 0) in vec2 aPos;
+        layout (location = 1) in vec2 aTexCoords;
+
+        out vec2 TexCoords;
+
+        void main()
+        {
+            gl_Position = vec4(aPos.x, aPos.y, 0.0, 1.0); 
+            TexCoords = aTexCoords;
+        }  
+      )VertexShader";
+
+    const char* FragShaderSource =
+      R"FragShader(
+        #version 330 core
+        out vec4 FragColor;
+          
+        in vec2 TexCoords;
+
+        uniform sampler2D screenTexture;
+
+        void main()
+        { 
+            FragColor = texture(screenTexture, TexCoords);
+        }
+      )FragShader";
+
+    // Create vertex/fragment shaders for sampling texture over a quad
+    unsigned int vert_shader = create_shader_source(GL_VERTEX_SHADER, VertexShaderSource);
+    unsigned int frag_shader = create_shader_source(GL_FRAGMENT_SHADER, FragShaderSource);
+
+    // Assembled shaders into a single program
+    const unsigned program = link_shader_program(
+        vert_shader,
+        frag_shader,
+        nullptr
+    );
+
+    // Cleanup shader sources, which are no longer needed since we already have the program assembled
+    glDeleteShader(vert_shader);
+    glDeleteShader(frag_shader);
+
+    return program;
+}
+
+
+
+
 struct Vec2
 {
     float x;
@@ -256,8 +353,8 @@ inline bool vec2_near_line_segment(const Line* const line, const Vec2* const poi
 
 struct RenderPipelineData
 {
-    GLuint points_vba_id;
-    GLuint lines_vba_id;
+    GLuint points_voa_id, points_vba_id;
+    GLuint lines_voa_id, lines_vba_id;
 };
 
 void render_pipeline_initialize(RenderPipelineData* const r_data)
@@ -265,12 +362,18 @@ void render_pipeline_initialize(RenderPipelineData* const r_data)
     glPointSize(3.f);
 
     // Setup vertex buffer for points
+    glGenVertexArrays(1, &r_data->points_voa_id);
+    glBindVertexArray(r_data->points_voa_id);
     glGenBuffers(1, &r_data->points_vba_id);
     glBindBuffer(GL_ARRAY_BUFFER, r_data->points_vba_id);
 
     // Setup vertex buffer for lines
+    glGenVertexArrays(1, &r_data->lines_voa_id);
+    glBindVertexArray(r_data->lines_voa_id);
     glGenBuffers(1, &r_data->lines_vba_id);
     glBindBuffer(GL_ARRAY_BUFFER, r_data->lines_vba_id);
+
+    glBindVertexArray(0);
 }
 
 void render_pipeline_destroy(RenderPipelineData* const r_data)
@@ -281,6 +384,7 @@ void render_pipeline_destroy(RenderPipelineData* const r_data)
 
 void render_pipeline_draw_points(RenderPipelineData* const r_data, const Vec2* const points, const int n_points)
 {
+    glBindVertexArray(r_data->points_voa_id);
     glBindBuffer(GL_ARRAY_BUFFER, r_data->points_vba_id);
     glEnableVertexAttribArray(0);
     glVertexAttribPointer(
@@ -297,6 +401,7 @@ void render_pipeline_draw_points(RenderPipelineData* const r_data, const Vec2* c
 
 void render_pipeline_draw_lines(RenderPipelineData* const r_data, const Line* const lines, const int n_lines)
 {
+    glBindVertexArray(r_data->lines_voa_id);
     // TODO(optimization) environment data need only be uploaded once, so glBufferData is redundant on
     //                    each update. Make a separate upload function and call on loop entry, or keep things
     //                    this way if the environment is to be dynamic
@@ -640,7 +745,7 @@ int main(int, char**)
     if (!glfwInit())
         return 1;
 
-    const char* glsl_version = "#version 130";
+    const char* glsl_version = "#version 330";
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 0);
 
@@ -668,8 +773,8 @@ int main(int, char**)
 
     // ERROR ERROR
     // During init, enable debug output
-    glEnable              ( GL_DEBUG_OUTPUT );
-    glDebugMessageCallback( MessageCallback, 0 );
+    //glEnable              ( GL_DEBUG_OUTPUT );
+    //glDebugMessageCallback( MessageCallback, 0 );
 
     // Setup Dear ImGui context
     IMGUI_CHECKVERSION();
@@ -748,28 +853,100 @@ int main(int, char**)
 
     // Render SETUP
     // Render the game to a texture (IMGUI displays this image in a window)
-    unsigned int fbo;
-    glGenFramebuffers(1, &fbo);
-    glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+    unsigned int framebuffer;
+    glGenFramebuffers(1, &framebuffer);
+    glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
 
-    GLuint TOF;
-    glGenTextures(1, &TOF);
-    glBindTexture(GL_TEXTURE_2D, TOF);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, 600, 600, 0, GL_RGB, GL_UNSIGNED_BYTE, NULL);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    // generate texture
+    unsigned int textureColorbuffer;
+    glGenTextures(1, &textureColorbuffer);
+    glBindTexture(GL_TEXTURE_2D, textureColorbuffer);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, small, small, 0, GL_RGB, GL_UNSIGNED_BYTE, NULL);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR );
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glBindTexture(GL_TEXTURE_2D, 0);
 
-    // Set "TOF" as our colour attachement #0
-    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, TOF, 0);
-
-    // Render buffer???
-    unsigned int rbo;
-    glGenRenderbuffers(1, &rbo);
-    glBindRenderbuffer(GL_RENDERBUFFER, rbo);
-    glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, 600, 600); // use a single renderbuffer object for both a depth AND stencil buffer.
-    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, rbo); // now actually attach it
+    // attach it to currently bound framebuffer object
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, textureColorbuffer, 0);
 
     assert(glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+    // create a scissored quad to sample the texture over
+    unsigned int fbo_texture_vao, fbo_texture_vbo, fbo_texture_ebo;
+    {
+        // Element indices for triangles of scissored quad
+        const unsigned element_indices[6] = {0, 1, 2, 2, 3, 0};
+
+        const float position_data[8] = {
+            -0.5f, -0.5f,
+             0.5f, -0.5f,
+             0.5f,  0.5f,
+            -0.5f,  0.5f,
+        };
+        const float texcoord_data[8] = {
+           0.0f, 1.0f,
+           1.0f, 1.0f,
+           1.0f, 0.0f,
+           0.0f, 0.0f
+        };
+
+        // Create vertex array object (VAO)
+        glGenVertexArrays(1, &fbo_texture_vao);
+
+        // Create buffers for this VAO { vertex buffer (VBO), element buffer (EBO) }
+        glGenBuffers(1, &fbo_texture_vbo);
+        glGenBuffers(1, &fbo_texture_ebo);
+
+        // Switch to new VAO
+        glBindVertexArray(fbo_texture_vao);
+
+        // Upload element index data
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, fbo_texture_ebo);
+        glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(GLuint) * 6, element_indices, GL_STATIC_DRAW);
+
+        // Upload vertex data
+        glBindBuffer(GL_ARRAY_BUFFER, fbo_texture_vbo);
+
+        // Allocate total buffer size
+        glBufferData(GL_ARRAY_BUFFER, sizeof(float) * 16, 0, GL_STATIC_DRAW);
+
+        // Add vertex position data
+        glEnableVertexAttribArray(0);
+        glVertexAttribPointer(
+            0,                  // attribute 0. No particular reason for 0, but must match the layout in the shader.
+            2,                  // size
+            GL_FLOAT,           // type
+            GL_FALSE,           // normalized?
+            sizeof(float) * 2,  // stride
+            (void*)0            // array buffer offset
+        );
+        glBufferSubData(GL_ARRAY_BUFFER, 0,                 sizeof(float) * 8, position_data);
+
+        // Add vertex texcoord data
+        glEnableVertexAttribArray(1);
+        glVertexAttribPointer(
+            1,                  // attribute 0. No particular reason for 0, but must match the layout in the shader.
+            2,                  // size
+            GL_FLOAT,           // type
+            GL_FALSE,           // normalized?
+            sizeof(float) * 2,  // stride
+            (void*)(sizeof(position_data)) // array buffer offset
+        );
+        glBufferSubData(GL_ARRAY_BUFFER, sizeof(float) * 8, sizeof(float) * 8, texcoord_data);
+
+        // Unset active VBO/EBO
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+        glBindBuffer(GL_ARRAY_BUFFER, 0);
+
+        // Unset VAO
+        glBindVertexArray(0);
+    }
+
+    // create a shader for actually sampling the texture
+    const unsigned fbo_texture_shader_program = create_texture_fbo_shader_program();
+
+
     // Render SETUP done
 
     // Main loop
@@ -788,8 +965,6 @@ int main(int, char**)
         ImGui_ImplOpenGL3_NewFrame();
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
-
-        ImGui::ShowMetricsWindow();
 
         // See OpenGL error callback
         ImGui::Begin("OpenGL Error Place");
@@ -831,29 +1006,23 @@ int main(int, char**)
         ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
         ImGui::End();
 
-        glBindFramebuffer(GL_FRAMEBUFFER, fbo);
-        /* glBindTexture(GL_TEXTURE_2D, TOF); */
+        glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
+        glClearColor(0.5f, 0.2f, 0.4f, 1.0f);
+        glClear(GL_COLOR_BUFFER_BIT);
+        glViewport(0, 0, small, small);
 
         // Draw lines to screen
+        glUseProgram(0);
         render_pipeline_draw_points(&render_pipeline_data, ps.positions, ps.n_active);
         render_pipeline_draw_lines(&render_pipeline_data, env.boundaries, env.n_active);
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
-        // Create a window to draw game stuff into
+        //Create a window to draw game stuff into
         ImGui::Begin("Me game");
-        /* ImGui::Image( */
-        /*         ImTextureID user_texture_id, */
-        /*         const ImVec2& size, */
-        /*         const ImVec2& uv0 = ImVec2(0, 0), */
-        /*         const ImVec2& uv1 = ImVec2(1,1), */
-        /*         const ImVec4& tint_col = ImVec4(1,1,1,1), */
-        /*         const ImVec4& border_col = ImVec4(0,0,0,0) */
-        /*         ); */
         ImGui::Image(
-                (ImTextureID)&TOF, // user_texture_id,
-                ImVec2{500,500} // const ImVec2& size
+                reinterpret_cast<void*>(textureColorbuffer), // user_texture_id,
+                ImVec2{small,small} // const ImVec2& size
                 );
-        /* ImDrawList* drawList = ImGui::GetWindowDrawList(); */
-        /* drawList-> */
         ImGui::End();
 
 
@@ -864,6 +1033,15 @@ int main(int, char**)
         glViewport(0, 0, display_w, display_h);
         glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT);
+
+        // draw fbo texture quad
+        glUseProgram(fbo_texture_shader_program);
+        glUniform1i(glGetUniformLocation(fbo_texture_shader_program, "screenTexture"), 0);
+        glBindVertexArray(fbo_texture_vao);
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, fbo_texture_ebo);
+        glActiveTexture(0);
+        glBindTexture(GL_TEXTURE_2D, textureColorbuffer);
+        glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
 
         // Draw imgui stuff to screen
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
@@ -877,8 +1055,8 @@ int main(int, char**)
     ImGui::DestroyContext();
 
     // Maybe this is a good idea
-    glDeleteFramebuffers(1, &fbo);
-    glDeleteTextures(1, &TOF);
+    glDeleteFramebuffers(1, &framebuffer);
+    glDeleteTextures(1, &textureColorbuffer);
 
     glfwDestroyWindow(window);
     glfwTerminate();
