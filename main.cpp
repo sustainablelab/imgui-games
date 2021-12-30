@@ -22,11 +22,8 @@
 
 // TODO
 //
-//  - Add animated sprites or shader-based graphical flair (light-orbs, sparkling) for particles and planets
 //  - Add text rendering (e.g. for score, menus)
 //  - Optimize collision / intercept checking
-//  - Add some sort of ambient sound for planets
-//  - Add some sort of spatial sound or wooshing (synethesized?) sound for particles
 //  - Add sounds for boundary collisions
 //  - Add level serialization
 //  - Decide procedural level generation or not?
