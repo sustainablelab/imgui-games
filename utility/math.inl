@@ -292,3 +292,32 @@ inline Vec2 line_to_normal(const Line* const line)
     normal.y /= d;
     return normal;
 }
+
+struct AABB
+{
+    Vec2 min_corner;
+    Vec2 max_corner;
+};
+
+inline void aabb_initialize(AABB* const aabb, const Vec2* const point0, const Vec2* const point1)
+{
+    aabb->max_corner.x = std::fmax(point0->x, point1->x);
+    aabb->max_corner.y = std::fmax(point0->y, point1->y);
+    aabb->min_corner.x = std::fmin(point0->x, point1->x);
+    aabb->min_corner.y = std::fmin(point0->y, point1->y);
+}
+
+inline AABB aabb_create(const Vec2 point0, const Vec2 point1)
+{
+    AABB aabb;
+    aabb_initialize(&aabb, &point0, &point1);
+    return aabb;
+}
+
+inline bool aabb_within(const AABB* const aabb, const Vec2* const point)
+{
+    return (point->x > aabb->min_corner.x) &&
+           (point->y > aabb->min_corner.y) &&
+           (point->x < aabb->max_corner.x) &&
+           (point->y < aabb->max_corner.y);
+}

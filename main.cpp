@@ -75,6 +75,7 @@ struct EnvironmentBoundaryProperties
 
 struct Environment
 {
+    AABB goal;
     Line* boundaries;
     Vec2* normals;
     EnvironmentBoundaryProperties* boundary_properties;
@@ -194,7 +195,7 @@ void particles_initialize(Particles* const ps, const int particle_count)
 
     ps->n_active = 0;
     ps->n_max = particle_count;
-    ps->max_velocity = 1.678;
+    ps->max_velocity = 2.5;
 }
 
 void particles_spawn_at(Particles* const ps, const Vec2 position)
@@ -1030,6 +1031,7 @@ static inline const char* al_error_to_str(const ALenum error)
     return "I have no idea...";
 }
 
+
 #ifndef NDEBUG
     #define AL_TEST_ERROR_RET(statement, retval) {       \
         (statement);\
@@ -1048,8 +1050,7 @@ static inline const char* al_error_to_str(const ALenum error)
 
 #define AL_TEST_ERROR(statement) AL_TEST_ERROR_RET(statement, -1)
 
-
-ALuint read_wav_file_to_buffer(const char* filename)
+static ALuint read_wav_file_to_buffer(const char* filename)
 {
     ALuint buffer;
     AL_TEST_ERROR_RET(alGenBuffers(1, &buffer), AL_NONE);
@@ -1091,6 +1092,25 @@ ALuint read_wav_file_to_buffer(const char* filename)
     std::free(buffer_data);
     return buffer;
 }
+
+static inline ALenum al_replay_sound(const GLuint sound_source, const GLuint sound_buffer)
+{
+    AL_TEST_ERROR_RET(alSourcei(sound_source, AL_BUFFER, sound_buffer), AL_NONE);
+    AL_TEST_ERROR_RET(alSourcePlay(sound_source), AL_NONE);
+    return AL_NONE;
+}
+
+static inline ALenum al_play_sound(const GLuint sound_source, const GLuint sound_buffer)
+{
+    ALint source_state;
+    AL_TEST_ERROR_RET(alGetSourcei(sound_source, AL_SOURCE_STATE, &source_state), AL_NONE);
+    if (source_state != AL_PLAYING)
+    {
+        return al_replay_sound(sound_source, sound_buffer);
+    }
+    return AL_NONE;
+}
+
 #endif // defined(PLATFORM_SUPPORTS_AUDIO)
 
 
@@ -1129,7 +1149,29 @@ int main(int, char**)
         AL_TEST_ERROR(alListenerfv(AL_ORIENTATION, listenerOri));
     }
 
-    // Prepare audio sources
+    // Prepare sfx sourcs
+    ALuint sfx_sources[2];
+    AL_TEST_ERROR(alGenSources((ALuint)2, sfx_sources));
+    for (int i = 0; i < 2; ++i)
+    {
+        AL_TEST_ERROR(alSourcef(sfx_sources[i], AL_PITCH, 1.0f));
+        AL_TEST_ERROR(alSourcef(sfx_sources[i], AL_GAIN, 1.5f));
+        AL_TEST_ERROR(alSource3f(sfx_sources[i], AL_POSITION, 0, 0, 0));
+        AL_TEST_ERROR(alSource3f(sfx_sources[i], AL_VELOCITY, 0, 0, 0));
+        AL_TEST_ERROR(alSourcei(sfx_sources[i], AL_LOOPING, AL_FALSE));
+    }
+
+    // Load SFX
+    const ALuint sfx_buffers[2] = {
+        read_wav_file_to_buffer("assets/smw_coin.wav"),
+        read_wav_file_to_buffer("assets/smw_coin.wav"),
+    };
+
+#if defined(PLATFORM_SUPPORTS_AUDIO)
+    al_play_sound(sfx_sources[0], sfx_buffers[0]);
+#endif // defined(PLATFORM_SUPPORTS_AUDIO)
+
+    // Prepare music track sources
     ALuint audio_sources[17];
     AL_TEST_ERROR(alGenSources((ALuint)17, audio_sources));
     for (int i = 0; i < 17; ++i)
@@ -1141,7 +1183,7 @@ int main(int, char**)
         AL_TEST_ERROR(alSourcei(audio_sources[i], AL_LOOPING, AL_TRUE));
     }
 
-    // Load sounds
+    // Load music
     const ALuint audio_track_buffers[17] = {
         read_wav_file_to_buffer("assets/track_1.wav"),
         read_wav_file_to_buffer("assets/track_2.wav"),
@@ -1259,6 +1301,11 @@ int main(int, char**)
         Vec2{+0.2f * BOUNDARY_LIMIT, +0.2 * BOUNDARY_LIMIT}
     );
 
+    env.goal = aabb_create(
+        Vec2{BOUNDARY_LIMIT - 0.4, BOUNDARY_LIMIT - 0.4},
+        Vec2{BOUNDARY_LIMIT - 0.1, BOUNDARY_LIMIT - 0.1}
+    );
+
     static const int N_PLANETS_MAX = 1000;
     static const int N_POINTS_MAX = 200000;
 
@@ -1286,8 +1333,11 @@ int main(int, char**)
 
     float freq_min = 60.f;
     float dt_max = 1.f / freq_min;
-    float next_planet_mass = 0.33f;
+    float next_planet_mass = 0.5f;
     bool next_planet_assymetric_grav = false;
+
+    int score = -1;
+    const int min_required_score = 100;
 
     // Main loop
     while (!glfwWindowShouldClose(window))
@@ -1297,131 +1347,210 @@ int main(int, char**)
 
         glfwPollEvents();
 
-        // Update game user input stuff first
-        user_input_state_update(&input_state, window);
-
-        // Update/reset environment state
-        environment_update(&env, dt);
-
         // Start the Dear ImGui frame
         ImGui_ImplOpenGL3_NewFrame();
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
 
-        ImGui::Begin("Debug stuff");
 
-        // Don't allow game interation if the debug panel is hovered
-        if (ImGui::IsWindowHovered())
+
+        // Update game user input stuff first
+        user_input_state_update(&input_state, window);
+
+        ImGui::Begin("Debug stuff", nullptr, ImGuiWindowFlags_NoTitleBar);
+        if (score < 0)
         {
-            // TRAP
+            ImGui::OpenPopup("start-menu-proto");
+            ImGui::BeginPopupModal("start-menu-proto");
+            ImGui::Text("The goal is to sling particles to the upper right corner.\n"
+                        "Doing so accumulates points. Planets are added to create\n"
+                        "gravitational fields to pull particles.");
+            ImGui::Dummy(ImVec2{1, 30});
+            ImGui::Text("Controls");
+            ImGui::Dummy(ImVec2{1, 30});
+            ImGui::Text("L-CTRL  + LMB : Spawn a single particle");
+            ImGui::Text("L-SHIFT + LMB : Spawn a MANY particles");
+            ImGui::Text("          LMB : Spawn a planet");
+            ImGui::Dummy(ImVec2{1, 30});
+            if (ImGui::Button("START"))
+            {
+                score = 0;
+            }
+            ImGui::EndPopup();
         }
-        // Spawn single particle on click
-        else if (input_state.current.fields.left_ctrl && input_state.pressed.fields.left_mouse_button)
+        else if (score < min_required_score)
         {
-            const Vec2 mouse_position_world =
-                render_pipeline_get_screen_mouse_position(&render_pipeline_data);
-            particles_spawn_at(&particles, mouse_position_world);
-        }
-        // Spew particles from mouse
-        else if (input_state.current.fields.left_shift && input_state.current.fields.left_mouse_button)
-        {
-            const Vec2 mouse_position_world =
-                render_pipeline_get_screen_mouse_position(&render_pipeline_data);
-            particles_spawn_at(&particles, mouse_position_world);
-        }
-        // Spawn single planet on click
-        else if (input_state.pressed.fields.left_mouse_button)
-        {
-            const Vec2 mouse_position_world =
-                render_pipeline_get_screen_mouse_position(&render_pipeline_data);
+            // Update/reset environment state
+            environment_update(&env, dt);
 
-            if (next_planet_assymetric_grav)
+            // Don't allow game interation if the debug panel is hovered
+            if (ImGui::IsWindowHovered())
             {
-                planets_spawn_at(&planets, mouse_position_world, Vec2{0, 1}, next_planet_mass);
+                // TRAP
             }
-            else
+            // Spawn single particle on click
+            else if (input_state.current.fields.left_ctrl && input_state.pressed.fields.left_mouse_button)
             {
-                planets_spawn_at(&planets, mouse_position_world, Vec2{0, 0}, next_planet_mass);
+                const Vec2 mouse_position_world =
+                    render_pipeline_get_screen_mouse_position(&render_pipeline_data);
+                particles_spawn_at(&particles, mouse_position_world);
             }
-        }
-        // Spawn / grab single planet which follows the cursor
-        else if (input_state.current.fields.key_f)
-        {
-            const Vec2 mouse_position_world =
-                render_pipeline_get_screen_mouse_position(&render_pipeline_data);
-            if (planets.n_active > 0)
+            // Spew particles from mouse
+            else if (input_state.current.fields.left_shift && input_state.current.fields.left_mouse_button)
             {
-                planets.positions[0] = mouse_position_world;
+                const Vec2 mouse_position_world =
+                    render_pipeline_get_screen_mouse_position(&render_pipeline_data);
+                particles_spawn_at(&particles, mouse_position_world);
             }
-            else if (next_planet_assymetric_grav)
+            // Spawn single planet on click
+            else if (input_state.pressed.fields.left_mouse_button)
             {
-                planets_spawn_at(&planets, mouse_position_world, Vec2{0, 1}, next_planet_mass);
-            }
-            else
-            {
-                planets_spawn_at(&planets, mouse_position_world, Vec2{0, 0}, next_planet_mass);
-            }
-        }
+                const Vec2 mouse_position_world =
+                    render_pipeline_get_screen_mouse_position(&render_pipeline_data);
 
-        // Apply planet gravity to particles
-        planets_apply_to_particles(&planets, &env, &particles);
+                if (next_planet_assymetric_grav)
+                {
+                    planets_spawn_at(&planets, mouse_position_world, Vec2{0, 1}, next_planet_mass);
+                }
+                else
+                {
+                    planets_spawn_at(&planets, mouse_position_world, Vec2{0, 0}, next_planet_mass);
+                }
+            }
+            // Spawn / grab single planet which follows the cursor
+            else if (input_state.current.fields.key_f)
+            {
+                const Vec2 mouse_position_world =
+                    render_pipeline_get_screen_mouse_position(&render_pipeline_data);
+                if (planets.n_active > 0)
+                {
+                    planets.positions[0] = mouse_position_world;
+                }
+                else if (next_planet_assymetric_grav)
+                {
+                    planets_spawn_at(&planets, mouse_position_world, Vec2{0, 1}, next_planet_mass);
+                }
+                else
+                {
+                    planets_spawn_at(&planets, mouse_position_world, Vec2{0, 0}, next_planet_mass);
+                }
+            }
 
-        // Do planet update
-        planets_update(&planets, dt);
+            // Apply planet gravity to particles
+            planets_apply_to_particles(&planets, &env, &particles);
 
-        // Do particle update
-        particles_update(&particles, &env, dt);
-
+            // Check for particles in the goal region
+            for (int i = 0; i < particles.n_active; ++i)
+            {
+                // Stop these particles here
+                if (aabb_within(&env.goal, particles.positions + i))
+                {
+                    if (vec2_length_squared(particles.velocities + i) > 0.f)
+                    {
 #if defined(PLATFORM_SUPPORTS_AUDIO)
-        // Play sounds based on positions
-        unsigned in_zone[16];
-        std::memset(in_zone, 0, sizeof(unsigned) * 16);
-        for (int i = 0; i < particles.n_active; ++i)
-        {
-            const int xd = ((particles.positions + i)->x + 1.f) / 0.5f;
-            const int yd = ((particles.positions + i)->y + 1.f) / 0.5f;
-            in_zone[xd * 4 + yd] += 1;
-        }
-        for (int z = 0; z < 16; ++z)
-        {
-            const float gain = std::fmin(1.f, (float)in_zone[z] / 4.f);
-            AL_TEST_ERROR(alSourcef(audio_sources[z], AL_GAIN, gain));
-        }
-
-        // Update background track
-        {
-            const float gain = std::fmin(1.f, (float)planets.n_active / 3.f);
-            AL_TEST_ERROR(alSourcef(audio_sources[16], AL_GAIN, gain));
-        }
+                        al_replay_sound(sfx_sources[0], sfx_buffers[0]);
 #endif // defined(PLATFORM_SUPPORTS_AUDIO)
 
-        // Create a window called "Hello, world!" and append into it.
-        ImGui::Text("Controls");
-        ImGui::Dummy(ImVec2{1, 30});
-        ImGui::Text("L-CTRL  + LMB : Spawn a single particle");
-        ImGui::Text("L-SHIFT + LMB : Spawn a MANY particles");
-        ImGui::Text("          LMB : Spawn a planet");
-        ImGui::Dummy(ImVec2{1, 30});
-        ImGui::Text("Particles  : (%d)", particles.n_active);
-        ImGui::Text("Boundaries : (%d)", env.n_boundaries);
-        if (ImGui::SliderFloat("min update rate", (float*)(&freq_min), 30.0, 120.0))
-        {
-            dt_max = 1./ freq_min;
+                        ++score;
+                    }
+                    vec2_set_zero(particles.forces + i);
+                    vec2_set_zero(particles.velocities + i);
+                }
+            }
+
+            // Do planet update
+            planets_update(&planets, dt);
+
+            // Do particle update
+            particles_update(&particles, &env, dt);
+
+#if defined(PLATFORM_SUPPORTS_AUDIO)
+            // Play sounds based on positions
+            unsigned in_zone[16];
+            std::memset(in_zone, 0, sizeof(unsigned) * 16);
+            for (int i = 0; i < particles.n_active; ++i)
+            {
+                const int xd = ((particles.positions + i)->x + 1.f) / 0.5f;
+                const int yd = ((particles.positions + i)->y + 1.f) / 0.5f;
+                in_zone[xd * 4 + yd] += 1;
+            }
+            for (int z = 0; z < 16; ++z)
+            {
+                const float gain = std::fmin(1.f, (float)in_zone[z] / 4.f);
+                AL_TEST_ERROR(alSourcef(audio_sources[z], AL_GAIN, gain));
+            }
+
+            // Update background track
+            {
+                const float gain = std::fmin(1.f, (float)planets.n_active / 3.f);
+                AL_TEST_ERROR(alSourcef(audio_sources[16], AL_GAIN, gain));
+            }
+#endif // defined(PLATFORM_SUPPORTS_AUDIO)
+
+            ImGui::Text("SCORE (%d) of (%d)", score, min_required_score);
+            ImGui::Dummy(ImVec2{1, 30});
+            ImGui::Text("Particles  : (%d)", particles.n_active);
+            ImGui::Text("Boundaries : (%d)", env.n_boundaries);
+            if (ImGui::SliderFloat("min update rate", (float*)(&freq_min), 30.0, 120.0))
+            {
+                dt_max = 1./ freq_min;
+            }
+            ImGui::InputFloat2("gravity", (float*)(&env.gravity));
+            ImGui::SliderFloat("dampening", &env.dampening, 0.1f, 1.f);
+            ImGui::SliderFloat("max particle velocity", &particles.max_velocity, 0.5f, 5.f);
+            ImGui::SliderFloat("next planet mass", &next_planet_mass, 0.1f, 2.f);
+            ImGui::Checkbox("next gravity assymetric", &next_planet_assymetric_grav);
+            if (ImGui::SmallButton("Clear particles"))
+            {
+                particles_clear(&particles);
+            }
+            if (ImGui::SmallButton("Clear planets"))
+            {
+                planets_clear(&planets);
+            }
+            ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
         }
-        ImGui::InputFloat2("gravity", (float*)(&env.gravity));
-        ImGui::SliderFloat("dampening", &env.dampening, 0.1f, 1.f);
-        ImGui::SliderFloat("max particle velocity", &particles.max_velocity, 0.5f, 5.f);
-        ImGui::SliderFloat("next planet mass", &next_planet_mass, 0.1f, 2.f);
-        ImGui::Checkbox("next gravity assymetric", &next_planet_assymetric_grav);
-        if (ImGui::SmallButton("Clear particles"))
+        // Create a popup on win
+        else
         {
-            particles_clear(&particles);
+            ImGui::OpenPopup("YOU WIN!");
+            ImGui::BeginPopupModal("YOU WIN!");
+            ImGui::Text("Thanks for playing!");
+            if (ImGui::Button("Reset?"))
+            {
+#if defined(PLATFORM_SUPPORTS_AUDIO)
+                // Reset all tracks to spoopy speed
+                for (int z = 0; z < 17; ++z)
+                {
+                    AL_TEST_ERROR(alSourcef(audio_sources[z], AL_PITCH, 0.5f));
+                    AL_TEST_ERROR(alSourcef(audio_sources[z], AL_GAIN, 0.f));
+                }
+#endif  // defined(PLATFORM_SUPPORTS_AUDIO)
+                score = 0;
+                planets_clear(&planets);
+                particles_clear(&particles);
+            }
+            else
+            {
+#if defined(PLATFORM_SUPPORTS_AUDIO)
+                // Reset all tracks to spoopy speed
+                for (int z = 0; z < 17; ++z)
+                {
+                    AL_TEST_ERROR(alSourcef(audio_sources[z], AL_GAIN, 0.f));
+                }
+                // Play some tracks at normal speed on win
+                AL_TEST_ERROR(alSourcef(audio_sources[5], AL_PITCH, 1.00f));
+                AL_TEST_ERROR(alSourcef(audio_sources[5], AL_GAIN, 0.25f));
+                AL_TEST_ERROR(alSourcef(audio_sources[9], AL_PITCH, 1.00f));
+                AL_TEST_ERROR(alSourcef(audio_sources[9], AL_GAIN, 0.25f));
+                AL_TEST_ERROR(alSourcef(audio_sources[11], AL_PITCH, 1.00f));
+                AL_TEST_ERROR(alSourcef(audio_sources[11], AL_GAIN, 0.25f));
+                AL_TEST_ERROR(alSourcef(audio_sources[13], AL_PITCH, 1.00f));
+                AL_TEST_ERROR(alSourcef(audio_sources[14], AL_GAIN, 0.25f));
+#endif  // defined(PLATFORM_SUPPORTS_AUDIO)
+            }
+            ImGui::EndPopup();
         }
-        if (ImGui::SmallButton("Clear planets"))
-        {
-            planets_clear(&planets);
-        }
-        ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
         ImGui::End();
 
         // TODO:
