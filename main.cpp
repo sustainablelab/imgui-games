@@ -162,6 +162,7 @@ bool environment_is_boundary_between(const Environment* const env, const Vec2* c
 void environment_destroy(Environment* const env)
 {
     std::free(env->boundaries);
+    std::free(env->boundary_properties);
     std::free(env->normals);
 }
 
@@ -1113,6 +1114,7 @@ static ALuint read_wav_file_to_buffer(const char* filename)
 #else
     AL_TEST_ERROR_RET(alBufferData(buffer, to_al_format(wave->channels, wave->bitsPerSample), buffer_data, wave->dataSize, wave->sampleRate), AL_NONE);
     std::free(buffer_data);
+    WaveCloseFile(wave);
 #endif
     return buffer;
 }
