@@ -1034,7 +1034,7 @@ static inline const char* al_error_to_str(const ALenum error)
 }
 
 
-#ifndef NDEBUG
+#if !defined(NDEBUG) && defined(AL_CHECK_ALL_ERRORS)
     #define AL_TEST_ERROR_RET(statement, retval) {       \
         (statement);\
         const ALCenum al_error = alGetError();  \
