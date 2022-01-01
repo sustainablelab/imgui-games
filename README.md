@@ -71,6 +71,141 @@ IMGUI can do.
 
 ## Install dependencies and build
 
+### Audio
+
+Need Linux packages:
+
+- `libopenal`
+    - [OpenAL](https://openal.org/)
+    - this is a spec, like how OpenGL is a spec
+    - the implementation is [OpenAL Soft](https://github.com/kcat/openal-soft)
+- `libaudio`
+    - [Network Audio System](https://radscan.com/nas/nas-README.txt)
+    - just using this to read wave files
+
+On MSYS, this is the OpenAL package:
+
+```bash
+pacman -S mingw-w64-x86_64-openal
+```
+
+There is no MSYS package for `libaudio`. But it is only used
+reading wave files, so instead of `libaudio`, use `alut` (ALUT is
+the audio version of GLUT) as is done in [the example
+here](https://ffainelli.github.io/openal-example/) (search for
+"Loading an audio stream to a buffer"). `alut` is available for
+MSYS.
+
+According to the author, `alut` is deprecated, but it's simpler
+than `libaudio`. The point is to read wave files without writing
+our own code for that, so `alut` is fine.
+
+```bash
+$ pacman -S mingw-w64-x86_64-freealut
+```
+
+Then the program has to `#include` `alut.h`:
+
+```c
+#if defined(PLATFORM_WINDOWS)
+#include <AL/alut.h> // <------ freealut on Windows MSYS2
+#else
+#include <audio/wave.h> // <--- libaudio on Linux
+#endif
+```
+
+The Makefile for Windows has to add some more `libs` (the
+`-l` flags in the `LIBS`):
+
+```make
+	LIBS += `pkg-config --libs freealut`
+```
+
+ALUT is documented [here](https://distro.ibiblio.org/rootlinux/rootlinux-ports/more/freealut/freealut-1.1.0/doc/alut.html#CompilingLinking).
+
+The function we define that reads `.wav` files is `read_wav_file_to_buffer()`.
+This function:
+
+- takes a `.wav` filepath (`bob.wav`)
+- parses the `.wav` file
+- loads the raw audio stream into a `ALuint buffer`
+- returns this buffer
+
+Here it is with `#if define(PLATFORM_WINDOWS)` to do the parsing
+and loading with `freealut` (for Windows) or with `libaudio` (for
+Linux).
+
+```c
+static ALuint read_wav_file_to_buffer(const char* filename)
+{
+    ALuint buffer;
+    AL_TEST_ERROR_RET(alGenBuffers(1, &buffer), AL_NONE);
+
+#if defined(PLATFORM_WINDOWS)
+    ALsizei size, freq;
+    ALenum format;
+    ALvoid *data;
+    ALboolean loop = AL_FALSE;
+
+    // Parse .wav format
+    alutLoadWAVFile(
+            filename, // ALbyte *fileName
+            &format, // ALenum *format
+            &data, // void **data
+            &size, // ALsizei *size
+            &freq, // ALsizei *frequency
+            &loop // do not loop
+            );
+#else
+    /* load data */
+    WaveInfo* const wave = WaveOpenFileForReading(filename);
+    if (wave == nullptr)
+    {
+        std::printf("[read_wav_file_to_buffer] FILENAME (%s) NOT FOUND", filename);
+        return AL_NONE;
+    }
+
+    {
+        const int retcode = WaveSeekFile(0, wave);
+        if (retcode)
+        {
+            std::printf("[read_wav_file_to_buffer] FAILED TO SEEK WAVEFILE");
+            return AL_NONE;
+        }
+    }
+
+    char* const buffer_data = (char*)std::malloc(wave->dataSize);
+    if (buffer_data == nullptr)
+    {
+        std::printf("[read_wav_file_to_buffer] FAILED ALLOCATE MEMORY FOR WAVE");
+        return AL_NONE;
+    }
+
+    {
+        const unsigned read_size = WaveReadFile(buffer_data, wave->dataSize, wave);
+        if (read_size != wave->dataSize)
+        {
+            std::printf("[read_wav_file_to_buffer] SHORT READ FOR WAVE FILE (%d) VS EXPECTED (%d)", read_size, wave->dataSize);
+            return AL_NONE;
+        }
+    }
+#endif
+
+#if defined(PLATFORM_WINDOWS)
+    // Load raw audio stream into buffer
+    AL_TEST_ERROR_RET(alBufferData(buffer, format, data, size, freq), AL_NONE);
+
+#else
+    AL_TEST_ERROR_RET(alBufferData(buffer, to_al_format(wave->channels, wave->bitsPerSample), buffer_data, wave->dataSize, wave->sampleRate), AL_NONE);
+    std::free(buffer_data);
+#endif
+    return buffer;
+}
+
+```
+
+### Graphics
+
 The dependencies depend on which framework you choose to use.
 IMGUI has examples for many frameworks. I choose
 [GLFW](https://www.glfw.org/) using

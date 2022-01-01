@@ -72,8 +72,10 @@ endif
 ifeq ($(OS), Windows_NT)
 	ECHO_MESSAGE = "MinGW"
 	LIBS += -lglfw3 -lgdi32 -lopengl32 -limm32 -lglew32 -lglu32
+	LIBS += `pkg-config --libs freealut`
 	CXXFLAGS += `pkg-config --cflags glfw3`
 	CXXFLAGS += -DPLATFORM_WINDOWS
+	CXXFLAGS += -DPLATFORM_SUPPORTS_AUDIO
 	CFLAGS = $(CXXFLAGS)
 
 	## TODO : [ADD OPENAL FLAGS FOR WINDOWS]

@@ -17,7 +17,11 @@
 #if defined(PLATFORM_SUPPORTS_AUDIO)
 #include <AL/al.h>
 #include <AL/alc.h>
+#if defined(PLATFORM_WINDOWS)
+#include <AL/alut.h>
+#else
 #include <audio/wave.h>
+#endif
 #endif  // defined(PLATFORM_SUPPORTS_AUDIO)
 
 // TODO
@@ -1052,6 +1056,22 @@ static ALuint read_wav_file_to_buffer(const char* filename)
     ALuint buffer;
     AL_TEST_ERROR_RET(alGenBuffers(1, &buffer), AL_NONE);
 
+#if defined(PLATFORM_WINDOWS)
+    ALsizei size, freq;
+    ALenum format;
+    ALvoid *data;
+    ALboolean loop = AL_FALSE;
+
+    // Parse .wav format
+    alutLoadWAVFile(
+            (ALbyte *)filename, // ALbyte *fileName
+            &format, // ALenum *format
+            &data, // void **data
+            &size, // ALsizei *size
+            &freq, // ALsizei *frequency
+            &loop // do not loop
+            );
+#else
     /* load data */
     WaveInfo* const wave = WaveOpenFileForReading(filename);
     if (wave == nullptr)
@@ -1084,9 +1104,16 @@ static ALuint read_wav_file_to_buffer(const char* filename)
             return AL_NONE;
         }
     }
+#endif
 
+#if defined(PLATFORM_WINDOWS)
+    // Load raw audio stream into buffer
+    AL_TEST_ERROR_RET(alBufferData(buffer, format, data, size, freq), AL_NONE);
+
+#else
     AL_TEST_ERROR_RET(alBufferData(buffer, to_al_format(wave->channels, wave->bitsPerSample), buffer_data, wave->dataSize, wave->sampleRate), AL_NONE);
     std::free(buffer_data);
+#endif
     return buffer;
 }
 
