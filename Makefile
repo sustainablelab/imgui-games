@@ -29,11 +29,18 @@ CXXFLAGS = -I$(IMGUI_DIR) -I$(IMGUI_DIR)/backends -I./utility
 CXXFLAGS += -g -Wall -Wformat
 LIBS =
 
+# Disable build optimizations
 ifeq ($(DEBUG),yes)
   CXXFLAGS += -O0
 else
   CXXFLAGS += -O3
   CXXFLAGS += -DNDEBUG=1
+endif
+
+# Enable memory tracking/sanitization instrumentation (leaks, bad points, etc.)
+ifeq ($(SANITIZE),yes)
+  CXXFLAGS += -fsanitize=address -fsanitize-address-use-after-scope -DADDRESS_SANITIZER -g -fno-omit-frame-pointer
+  LIBS += -fsanitize=address, -static-libasan
 endif
 
 ##---------------------------------------------------------------------
