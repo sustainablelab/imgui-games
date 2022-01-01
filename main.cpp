@@ -1014,7 +1014,7 @@ int main(int, char**)
     glfwMakeContextCurrent(window);
     glfwSwapInterval(1); // Enable vsync
 
-#if defined(BOB)
+#if defined(PLATFORM_WINDOWS)
     glewInit();
 #endif
 
