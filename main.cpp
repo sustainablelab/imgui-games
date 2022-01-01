@@ -1110,7 +1110,12 @@ static ALuint read_wav_file_to_buffer(const char* filename)
 #if defined(PLATFORM_WINDOWS)
     // Load raw audio stream into buffer
     AL_TEST_ERROR_RET(alBufferData(buffer, format, data, size, freq), AL_NONE);
-
+    alutUnloadWAV (
+            format,
+            data,
+            size,
+            freq
+            );
 #else
     AL_TEST_ERROR_RET(alBufferData(buffer, to_al_format(wave->channels, wave->bitsPerSample), buffer_data, wave->dataSize, wave->sampleRate), AL_NONE);
     std::free(buffer_data);
