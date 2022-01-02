@@ -1,14 +1,17 @@
 // C++ Standard Library
+#include <chrono>
 #include <cmath>
 #include <cstring>
 #include <cstdlib>
 #include <cstdio>
 #include <string>
 
-// ImGui
-#include "imgui.h"
-#include "imgui_impl_glfw.h"
-#include "imgui_impl_opengl3.h"
+#ifndef NDEBUG
+    // ImGui
+    #include "imgui.h"
+    #include "imgui_impl_glfw.h"
+    #include "imgui_impl_opengl3.h"
+#endif  // NDEBUG
 
 // OpenAL
 #if defined(PLATFORM_SUPPORTS_AUDIO)
@@ -1683,11 +1686,10 @@ int main(int, char**)
     if (!glfwInit())
         return 1;
 
-    const char* glsl_version = "#version 130";
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 0);
 
-    int small = 600;
+    int small = GAME_DEFAULT_WINDOW_HEIGHT;
     int display_w = 2 * small, display_h = small;
 
     // Create window with graphics context
@@ -1708,6 +1710,9 @@ int main(int, char**)
     glewInit();
 #endif
 
+#ifndef NDEBUG
+    const char* glsl_version = "#version 130";
+
     // Setup Dear ImGui context
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
@@ -1721,6 +1726,7 @@ int main(int, char**)
     // Setup Platform/Renderer backends
     ImGui_ImplGlfw_InitForOpenGL(window, true);
     ImGui_ImplOpenGL3_Init(glsl_version);
+#endif  // NDEBUG
 
     // Setup text rendering
     TextRenderPipelineData text_render_pipeline_data;
@@ -1830,21 +1836,34 @@ int main(int, char**)
     float next_planet_mass = 0.5f;
     bool next_planet_assymetric_grav = false;
 
+    using GameClock = std::chrono::steady_clock;
+    using FloatTimeDelta = std::chrono::duration<float>;
+
+    GameClock::time_point previous_time_point = GameClock::now();
+
     int score = -1;
     const int min_required_score = 100;
 
     // Main loop
     while (!glfwWindowShouldClose(window))
     {
-        const float dt_raw = ImGui::GetIO().DeltaTime;
+        // Update game time
+        const GameClock::time_point current_time_point = GameClock::now();
+        const GameClock::duration dt_duration = current_time_point - previous_time_point;
+        previous_time_point = current_time_point;
+
+        // Get frame time-delta as float dt value and saturate
+        const float dt_raw = std::chrono::duration_cast<FloatTimeDelta>(dt_duration).count();
         const float dt = std::fmin(dt_max, dt_raw);
 
         glfwPollEvents();
 
+#ifndef NDEBUG
         // Start the Dear ImGui frame
         ImGui_ImplOpenGL3_NewFrame();
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
+#endif  // NDEBUG
 
         // Update game user input stuff first
         user_input_state_update(&input_state, &render_pipeline_data);
@@ -2045,7 +2064,10 @@ int main(int, char**)
         // Render the game to a texture (IMGUI displays this image in a window)
 
         // Rendering
+#ifndef NDEBUG
         ImGui::Render();
+#endif  // NDEBUG
+
         glfwGetFramebufferSize(window, &display_w, &display_h);
         glViewport(0, 0, display_w, display_h);
         glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
@@ -2094,16 +2116,20 @@ int main(int, char**)
             text_region_draw(text_regions + WIN_MENU_RESTART_BUTTON, &text_render_pipeline_data, &render_pipeline_data);
         }
 
+#ifndef NDEBUG
         // Draw imgui stuff to screen
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+#endif  // NDEBUG
 
         glfwSwapBuffers(window);
     }
 
     // Cleanup
+#ifndef NDEBUG
     ImGui_ImplOpenGL3_Shutdown();
     ImGui_ImplGlfw_Shutdown();
     ImGui::DestroyContext();
+#endif  // NDEBUG
 
     glfwDestroyWindow(window);
     glfwTerminate();

@@ -15,19 +15,24 @@
 #CXX = clang++
 
 EXE = bob
-IMGUI_DIR = ./imgui
 SOURCES = main.cpp
-SOURCES += $(IMGUI_DIR)/imgui.cpp $(IMGUI_DIR)/imgui_demo.cpp $(IMGUI_DIR)/imgui_draw.cpp $(IMGUI_DIR)/imgui_tables.cpp $(IMGUI_DIR)/imgui_widgets.cpp
-SOURCES += $(IMGUI_DIR)/backends/imgui_impl_glfw.cpp $(IMGUI_DIR)/backends/imgui_impl_opengl3.cpp
+CXXFLAGS =
+LIBS =
+
+ifeq ($(DEBUG),yes)
+  IMGUI_DIR = ./imgui
+  SOURCES += $(IMGUI_DIR)/imgui.cpp $(IMGUI_DIR)/imgui_demo.cpp $(IMGUI_DIR)/imgui_draw.cpp $(IMGUI_DIR)/imgui_tables.cpp $(IMGUI_DIR)/imgui_widgets.cpp
+  SOURCES += $(IMGUI_DIR)/backends/imgui_impl_glfw.cpp $(IMGUI_DIR)/backends/imgui_impl_opengl3.cpp
+  CXXFLAGS += -I$(IMGUI_DIR) -I$(IMGUI_DIR)/backends
+endif
+
 OBJS = $(addsuffix .o, $(basename $(notdir $(SOURCES))))
+
 UNAME_S := $(shell uname -s)
 
 LINUX_AL_LIBS = -lopenal -laudio
 LINUX_GL_LIBS = -lGL
-
-CXXFLAGS = -I$(IMGUI_DIR) -I$(IMGUI_DIR)/backends -I./utility
-CXXFLAGS += -g -Wall -Wformat
-LIBS =
+CXXFLAGS += -I./utility -g -Wall -Wformat -DGAME_DEFAULT_WINDOW_HEIGHT=600
 
 # Disable build optimizations
 ifeq ($(DEBUG),yes)
@@ -98,11 +103,13 @@ endif
 %.o:%.cpp
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
+ifeq ($(DEBUG),yes)
 %.o:$(IMGUI_DIR)/%.cpp
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
 %.o:$(IMGUI_DIR)/backends/%.cpp
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
+endif
 
 all: $(EXE)
 	@echo Build complete for $(ECHO_MESSAGE)
