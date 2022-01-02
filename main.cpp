@@ -1204,7 +1204,10 @@ void text_render_pipeline_draw(TextRenderPipelineData* const text_r_data,
                                RenderPipelineData* const r_data,
                                const std::string& text,
                                Vec2 location,
-                               const float scale = 0.005)
+                               const float r,
+                               const float g,
+                               const float b,
+                               const float scale = 0.001)
 {
     // activate corresponding render state
     /* text_r_data->text_shader.Use(); */
@@ -1215,9 +1218,9 @@ void text_render_pipeline_draw(TextRenderPipelineData* const text_r_data,
                 /* text_r_data->text_shader.Program, */
                 text_r_data->text_shader,
                 "textColor"),
-            1.0f, // color.x
-            0.8f, // color.y
-            0.1f  // color.z
+            r, // color.x (red)
+            g, // color.y (green)
+            b  // color.z (blue)
     );
 
     // Set active texture uniform (use texture unit 0)
@@ -1470,9 +1473,7 @@ int main(int, char**)
         read_wav_file_to_buffer("assets/smw_coin.wav"),
     };
 
-#if defined(PLATFORM_SUPPORTS_AUDIO)
     al_play_sound(sfx_sources[0], sfx_buffers[0]);
-#endif // defined(PLATFORM_SUPPORTS_AUDIO)
 
     // Prepare music track sources
     ALuint audio_sources[17];
@@ -1525,7 +1526,7 @@ int main(int, char**)
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 0);
 
     int small = 600;
-    int display_w = small, display_h = small;
+    int display_w = 2 * small, display_h = small;
 
     // Create window with graphics context
     GLFWwindow* window = glfwCreateWindow(
@@ -1658,8 +1659,6 @@ int main(int, char**)
         ImGui_ImplOpenGL3_NewFrame();
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
-
-
 
         // Update game user input stuff first
         user_input_state_update(&input_state, window);
@@ -1882,7 +1881,13 @@ int main(int, char**)
         // Text rendering in the main loop
 
         // Draw rendered text to screen
-        text_render_pipeline_draw(&text_render_pipeline_data, &render_pipeline_data, "SNAD", Vec2{0, 0});
+        text_render_pipeline_draw(&text_render_pipeline_data, &render_pipeline_data, "SNAD", Vec2{0, 0.97}, 1, 1, 1);
+
+        {
+            char score_buffer[100];
+            std::sprintf(score_buffer, "Score: %d", score);
+            text_render_pipeline_draw(&text_render_pipeline_data, &render_pipeline_data, score_buffer, Vec2{1.f, 0.25}, 1, 1, 1);
+        }
 
         glfwSwapBuffers(window);
     }
