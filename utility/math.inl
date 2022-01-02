@@ -10,6 +10,11 @@ inline int imin(const int lhs, const int rhs)
     return ((lhs <= rhs) * lhs) + ((rhs < lhs) * rhs);
 }
 
+inline int imax(const int lhs, const int rhs)
+{
+    return ((lhs >= rhs) * lhs) + ((rhs > lhs) * rhs);
+}
+
 inline float clampf(const float v, const float vmin, const float vmax)
 {
     return std::fmax(vmin, std::fmin(v, vmax));

@@ -3,7 +3,6 @@
 #include <cstring>
 #include <cstdlib>
 #include <cstdio>
-#include <unordered_map>
 #include <string>
 
 // ImGui
@@ -84,6 +83,7 @@ struct EnvironmentBoundaryProperties
 struct Environment
 {
     AABB goal;
+    AABB valid_placement;
     Line* boundaries;
     Vec2* normals;
     EnvironmentBoundaryProperties* boundary_properties;
@@ -465,33 +465,6 @@ union Buttons
     uint64_t mask;
 };
 
-struct UserInputState
-{
-    Buttons previous;
-    Buttons current;
-    Buttons pressed;
-    Buttons released;
-};
-
-void user_input_state_initialized(UserInputState* const state, GLFWwindow* const window)
-{
-    std::memset(&state->previous, 0, sizeof(Buttons));
-    std::memset(&state->current, 0, sizeof(Buttons));
-    std::memset(&state->pressed, 0, sizeof(Buttons));
-    std::memset(&state->released, 0, sizeof(Buttons));
-}
-
-void user_input_state_update(UserInputState* const state, GLFWwindow* const window)
-{
-    state->current.fields.right_mouse_button = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_RIGHT) == GLFW_PRESS;
-    state->current.fields.left_mouse_button = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS;
-    state->current.fields.left_ctrl = glfwGetKey(window, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS;
-    state->current.fields.left_shift = glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS;
-    state->current.fields.key_f = glfwGetKey(window, GLFW_KEY_F) == GLFW_PRESS;
-    state->pressed.mask = (state->current.mask ^ state->previous.mask) & state->current.mask;
-    state->released.mask = (state->current.mask ^ state->previous.mask) & state->previous.mask;
-    std::memcpy(&state->previous, &state->current, sizeof(Buttons));  
-}
 
 struct RenderPipelineData
 {
@@ -1026,20 +999,25 @@ struct Character {
     FT_Pos Advance;    // Offset to advance to next glyph
 };
 
-// Make a Character map (for looking up glyphs).
-static std::unordered_map<char, Character> Characters;
-
 struct TextRenderPipelineData
 {
+    // Glyph data lookup table
+    Character* glyphs;
+    float glyph_scaling;
+
     GLuint text_shader;
     GLuint text_vao;
     GLuint text_vbo;
 };
 
-// Text rendering funcs
-
-void text_render_pipeline(TextRenderPipelineData* const r_data, const char* font_source_filename)
+void text_render_pipeline_initialize(TextRenderPipelineData* const r_data, const char* font_source_filename, const int pix_per_coord)
 {
+    // Storage for font character (glyph) data
+    r_data->glyphs = (Character*)std::malloc(sizeof(Character) * 128);
+
+    // Scaling such that a single character would fill the height of the windo
+    r_data->glyph_scaling = 2.f / (float)pix_per_coord;
+
     // Initialize the FreeType library
     FT_Library ft;
     if (FT_Init_FreeType(&ft))
@@ -1061,7 +1039,7 @@ void text_render_pipeline(TextRenderPipelineData* const r_data, const char* font
     FT_Set_Pixel_Sizes(
             face,
             0, // width: "0" means calc width from height
-            48 // height
+            pix_per_coord // height
             );
 
     // Make sure we can load glyphs. Try loading an 'X'.
@@ -1124,7 +1102,7 @@ void text_render_pipeline(TextRenderPipelineData* const r_data, const char* font
             },
             face->glyph->advance.x
         };
-        Characters.emplace(/*key*/ c, /*value*/ character);
+        r_data->glyphs[c] = character;
     }
 
     // Clear the FreeType resources
@@ -1165,11 +1143,11 @@ void text_render_pipeline(TextRenderPipelineData* const r_data, const char* font
                 out vec4 FragColor;
 
                 uniform sampler2D textTexture;
-                uniform vec3 textColor;
+                uniform vec4 textColor;
 
                 void main()
                 {
-                    FragColor = vec4(textColor, texture(textTexture, TexCoords).r);
+                    FragColor = vec4(textColor) * texture(textTexture, TexCoords).r;
                 } 
             )FragmentShader"
         );
@@ -1199,28 +1177,64 @@ void text_render_pipeline(TextRenderPipelineData* const r_data, const char* font
     glBindVertexArray(0);
 }
 
-// TODO: add input args text,x,y,scale,color
-void text_render_pipeline_draw(TextRenderPipelineData* const text_r_data,
-                               RenderPipelineData* const r_data,
+void text_render_pipeline_destroy(TextRenderPipelineData* const r_data)
+{
+    std::free(r_data->glyphs);
+}
+
+int text_render_pipeline_get_width_px(
+    const TextRenderPipelineData* const text_r_data,
+    const std::string& text)
+{
+    // iterate over characters in 'text'
+    int w = 0;
+    for (const char c : text)
+    {
+        const Character* const glyph_data = text_r_data->glyphs + (std::size_t)c;
+        w += (glyph_data->Advance >> 6); // bitshift by 6 to get value in pixels (2^6 = 64)
+    }
+    return w;
+}
+
+int text_render_pipeline_get_height_px(
+    const TextRenderPipelineData* const text_r_data,
+    const std::string& text)
+{
+    // iterate over characters in 'text'
+    int h = 0;
+    for (const char c : text)
+    {
+        const Character* const glyph_data = text_r_data->glyphs + (std::size_t)c;
+        h = imax(glyph_data->Size.y, h);
+    }
+    return h;
+}
+
+void text_render_pipeline_draw(const TextRenderPipelineData* const text_r_data,
+                               const RenderPipelineData* const r_data,
                                const std::string& text,
                                Vec2 location,
                                const float r,
                                const float g,
                                const float b,
-                               const float scale = 0.001)
+                               const float a,
+                               const float size = 0.1)
 {
+    const float scale = text_r_data->glyph_scaling * size;
+
     // activate corresponding render state
     /* text_r_data->text_shader.Use(); */
     glUseProgram(text_r_data->text_shader);
     glUniform1f(glGetUniformLocation(text_r_data->text_shader, "uAspectRatio"), r_data->aspect_ratio);
-    glUniform3f(
+    glUniform4f(
             glGetUniformLocation(
                 /* text_r_data->text_shader.Program, */
                 text_r_data->text_shader,
                 "textColor"),
             r, // color.x (red)
             g, // color.y (green)
-            b  // color.z (blue)
+            b, // color.a (blue)
+            a  // color.z (alpha)
     );
 
     // Set active texture uniform (use texture unit 0)
@@ -1241,11 +1255,11 @@ void text_render_pipeline_draw(TextRenderPipelineData* const text_r_data,
     // iterate over characters in 'text'
     for (const char c : text)
     {
-        const Character& ch = Characters[c];
-        const float xpos = location.x + ch.Bearing.x * scale;
-        const float ypos = location.y - (ch.Size.y - ch.Bearing.y) * scale;
-        const float w = ch.Size.x * scale;
-        const float h = ch.Size.y * scale;
+        const Character* const glyph_data = text_r_data->glyphs + (std::size_t)c;
+        const float xpos = location.x + glyph_data->Bearing.x * scale;
+        const float ypos = location.y - (glyph_data->Size.y - glyph_data->Bearing.y) * scale;
+        const float w = glyph_data->Size.x * scale;
+        const float h = glyph_data->Size.y * scale;
         // VBO for each character
         const float vertices[6][4] = {
             { xpos,     ypos +h, 0.0f, 0.0f },
@@ -1256,7 +1270,7 @@ void text_render_pipeline_draw(TextRenderPipelineData* const text_r_data,
             { xpos + w, ypos +h, 1.0f, 0.0f }
         };
         // render glyph texture over quad
-        glBindTexture(GL_TEXTURE_2D, ch.TextureID);
+        glBindTexture(GL_TEXTURE_2D, glyph_data->TextureID);
         // update content of VBO memory
         glBindBuffer(GL_ARRAY_BUFFER, text_r_data->text_vbo);
         glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(vertices), vertices);
@@ -1265,13 +1279,150 @@ void text_render_pipeline_draw(TextRenderPipelineData* const text_r_data,
         glDrawArrays(GL_TRIANGLES, 0, 6);
         // now advance cursors for next glyph
         // (note that advance is number of 1/64 pixels)
-        location.x += (ch.Advance >> 6) * scale; // bitshift by 6 to get value in pixels (2^6 = 64)
+        location.x += (glyph_data->Advance >> 6) * scale; // bitshift by 6 to get value in pixels (2^6 = 64)
     }
 
     // LOOP OVER TEXT STOPS
     glBindVertexArray(0);
     glBindTexture(GL_TEXTURE_2D, 0);
 }
+
+
+struct UserInputState
+{
+    Buttons previous;
+    Buttons current;
+    Buttons pressed;
+    Buttons released;
+    Vec2 mouse_position;
+};
+
+void user_input_state_initialize(UserInputState* const state)
+{
+    std::memset(&state->previous, 0, sizeof(Buttons));
+    std::memset(&state->current, 0, sizeof(Buttons));
+    std::memset(&state->pressed, 0, sizeof(Buttons));
+    std::memset(&state->released, 0, sizeof(Buttons));
+}
+
+void user_input_state_update(UserInputState* const state, RenderPipelineData* const r_data)
+{
+    state->current.fields.right_mouse_button = glfwGetMouseButton(r_data->window, GLFW_MOUSE_BUTTON_RIGHT) == GLFW_PRESS;
+    state->current.fields.left_mouse_button = glfwGetMouseButton(r_data->window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS;
+    state->current.fields.left_ctrl = glfwGetKey(r_data->window, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS;
+    state->current.fields.left_shift = glfwGetKey(r_data->window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS;
+    state->current.fields.key_f = glfwGetKey(r_data->window, GLFW_KEY_F) == GLFW_PRESS;
+    state->pressed.mask = (state->current.mask ^ state->previous.mask) & state->current.mask;
+    state->released.mask = (state->current.mask ^ state->previous.mask) & state->previous.mask;
+    std::memcpy(&state->previous, &state->current, sizeof(Buttons));
+    state->mouse_position = render_pipeline_get_screen_mouse_position(r_data);
+}
+
+
+struct TextRegion
+{
+    const char* text;
+    AABB rect;
+    float opacity;
+    float text_size;
+    bool is_hovered;
+};
+
+
+void text_region_update(
+    TextRegion* const tr,
+    const UserInputState* const ui_state)
+{
+    tr->is_hovered = aabb_within(&tr->rect, &ui_state->mouse_position);
+}
+
+void text_region_update_n(
+    TextRegion* const tr,
+    const int n,
+    const UserInputState* const ui_state)
+{
+    for (int i = 0; i < n; ++i)
+    {
+        text_region_update(tr + i, ui_state);
+    }
+}
+
+void text_region_draw(
+    const TextRegion* const tr,
+    const TextRenderPipelineData* const text_r_data,
+    const RenderPipelineData* const r_data)
+{
+    if (tr->opacity < 0.f)
+    {
+        return;
+    }
+    else if (tr->is_hovered)
+    {
+        text_render_pipeline_draw(text_r_data, r_data, tr->text, tr->rect.min_corner, 1.0f, 0.6f, 0.6f, tr->opacity, tr->text_size);
+    }
+    else
+    {
+        text_render_pipeline_draw(text_r_data, r_data, tr->text, tr->rect.min_corner, 0.6f, 0.6f, 0.6f, tr->opacity, tr->text_size);
+    }
+}
+
+void text_region_initialize(TextRegion* const tr, const TextRenderPipelineData* const text_r_data, const char* text, const Vec2 bottom_corner, const float text_size)
+{
+    // Set text payload
+    tr->text = text;
+
+    // Set text rectangle boundaries
+    {
+        const float region_width = text_render_pipeline_get_width_px(text_r_data, text) * text_r_data->glyph_scaling * text_size;
+        const float region_height = text_render_pipeline_get_height_px(text_r_data, text) * text_r_data->glyph_scaling * text_size;
+        tr->rect.min_corner.x = bottom_corner.x;
+        tr->rect.min_corner.y = bottom_corner.y;
+        tr->rect.max_corner.x = bottom_corner.x + region_width;
+        tr->rect.max_corner.y = bottom_corner.y + region_height;
+    }
+
+    // Set other stuff
+    tr->opacity = 1.f;
+    tr->text_size = text_size;
+    tr->is_hovered = false;
+}
+
+TextRegion text_region_create(const TextRenderPipelineData* const text_r_data, const char* text, const Vec2 bottom_corner, const float text_size)
+{
+    TextRegion tr;
+    text_region_initialize(&tr, text_r_data, text, bottom_corner, text_size);
+    return tr;
+}
+
+
+void text_region_initialize_centered(TextRegion* const tr, const TextRenderPipelineData* const text_r_data, const char* text, const Vec2 center, const float text_size)
+{
+    // Set text payload
+    tr->text = text;
+
+    // Set text rectangle boundaries
+    {
+        const float region_width = text_render_pipeline_get_width_px(text_r_data, text) * text_r_data->glyph_scaling * text_size;
+        const float region_height = text_render_pipeline_get_height_px(text_r_data, text) * text_r_data->glyph_scaling * text_size;
+        tr->rect.min_corner.x = center.x - 0.5f * region_width;
+        tr->rect.min_corner.y = center.y - 0.5f * region_height;
+        tr->rect.max_corner.x = center.x + 0.5f * region_width;
+        tr->rect.max_corner.y = center.y + 0.5f * region_height;
+    }
+
+    // Set other stuff
+    tr->opacity = 1.f;
+    tr->text_size = text_size;
+    tr->is_hovered = false;
+}
+
+TextRegion text_region_create_centered(const TextRenderPipelineData* const text_r_data, const char* text, const Vec2 center, const float text_size)
+{
+    TextRegion tr;
+    text_region_initialize_centered(&tr, text_r_data, text, center, text_size);
+    return tr;
+}
+
 
 #if defined(PLATFORM_SUPPORTS_AUDIO)
 static inline ALenum to_al_format(short channels, short samples)
@@ -1456,24 +1607,27 @@ int main(int, char**)
     }
 
     // Prepare sfx sourcs
-    ALuint sfx_sources[2];
-    AL_TEST_ERROR(alGenSources((ALuint)2, sfx_sources));
-    for (int i = 0; i < 2; ++i)
-    {
-        AL_TEST_ERROR(alSourcef(sfx_sources[i], AL_PITCH, 1.0f));
-        AL_TEST_ERROR(alSourcef(sfx_sources[i], AL_GAIN, 1.5f));
-        AL_TEST_ERROR(alSource3f(sfx_sources[i], AL_POSITION, 0, 0, 0));
-        AL_TEST_ERROR(alSource3f(sfx_sources[i], AL_VELOCITY, 0, 0, 0));
-        AL_TEST_ERROR(alSourcei(sfx_sources[i], AL_LOOPING, AL_FALSE));
-    }
+    ALuint sfx_source;
+    AL_TEST_ERROR(alGenSources((ALuint)1, &sfx_source));
+    AL_TEST_ERROR(alSourcef(sfx_source, AL_PITCH, 1.0f));
+    AL_TEST_ERROR(alSourcef(sfx_source, AL_GAIN, 1.5f));
+    AL_TEST_ERROR(alSource3f(sfx_source, AL_POSITION, 0, 0, 0));
+    AL_TEST_ERROR(alSource3f(sfx_source, AL_VELOCITY, 0, 0, 0));
+    AL_TEST_ERROR(alSourcei(sfx_source, AL_LOOPING, AL_FALSE));
 
     // Load SFX
-    const ALuint sfx_buffers[2] = {
-        read_wav_file_to_buffer("assets/smw_coin.wav"),
-        read_wav_file_to_buffer("assets/smw_coin.wav"),
+    enum SFXCodes
+    {
+        SFX_SCORE_POINT,
+        SFX_RESTART_GAME,
     };
 
-    al_play_sound(sfx_sources[0], sfx_buffers[0]);
+    const ALuint sfx_buffers[2] = {
+        read_wav_file_to_buffer("assets/smw_coin.wav"),
+        read_wav_file_to_buffer("assets/smb3_power-up.wav"),
+    };
+
+    al_play_sound(sfx_source, sfx_buffers[0]);
 
     // Prepare music track sources
     ALuint audio_sources[17];
@@ -1514,6 +1668,14 @@ int main(int, char**)
         AL_TEST_ERROR(alSourcei(audio_sources[i], AL_BUFFER, audio_track_buffers[i]));
         AL_TEST_ERROR(alSourcePlay(audio_sources[i]));
     }
+
+    #define PLAY_SFX(code) al_play_sound(sfx_source, sfx_buffers[code])
+    #define REPLAY_SFX(code) al_replay_sound(sfx_source, sfx_buffers[code])
+
+#else
+    #define PLAY_SFX(code)
+    #define REPLAY_SFX(code)
+
 #endif // defined(PLATFORM_SUPPORTS_AUDIO)
 
     // Setup window
@@ -1546,10 +1708,6 @@ int main(int, char**)
     glewInit();
 #endif
 
-    // Setup text rendering
-    TextRenderPipelineData text_render_pipeline_data;
-    text_render_pipeline(&text_render_pipeline_data, "assets/SyneMono-Regular.ttf");
-
     // Setup Dear ImGui context
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
@@ -1564,6 +1722,11 @@ int main(int, char**)
     ImGui_ImplGlfw_InitForOpenGL(window, true);
     ImGui_ImplOpenGL3_Init(glsl_version);
 
+    // Setup text rendering
+    TextRenderPipelineData text_render_pipeline_data;
+    text_render_pipeline_initialize(&text_render_pipeline_data, "assets/SyneMono-Regular.ttf", 400);
+
+    // Initialize game level
     Environment env;
     environment_initialize(&env, N_ENVIRONMENT_LINES_MAX);
     // bottom wall
@@ -1613,6 +1776,29 @@ int main(int, char**)
         Vec2{BOUNDARY_LIMIT - 0.4, BOUNDARY_LIMIT - 0.4},
         Vec2{BOUNDARY_LIMIT - 0.1, BOUNDARY_LIMIT - 0.1}
     );
+    env.valid_placement = aabb_create(
+        Vec2{-BOUNDARY_LIMIT, -BOUNDARY_LIMIT},
+        Vec2{+BOUNDARY_LIMIT, +BOUNDARY_LIMIT}
+    );
+
+    // Initialize text_regions
+    enum TextRegionType {
+        START_MENU_TITLE,
+        START_MENU_BUTTON,
+        IN_GAME_CLEAR_PLANETS,
+        IN_GAME_RETRY_LEVEL,
+        WIN_MENU_WIN_TEXT,
+        WIN_MENU_RESTART_BUTTON
+    };
+
+    TextRegion text_regions[6] = {
+        text_region_create_centered(&text_render_pipeline_data, "SNAD", Vec2{0,  0.0f}, 0.3f),
+        text_region_create_centered(&text_render_pipeline_data, "start game", Vec2{0, -0.4}, 0.05f),
+        text_region_create(&text_render_pipeline_data, "clear planets", Vec2{1, -0.5}, 0.04f),
+        text_region_create(&text_render_pipeline_data, "retry level", Vec2{1, -0.6}, 0.04f),
+        text_region_create_centered(&text_render_pipeline_data, "YOU WIN!", Vec2{0,  0.0f}, 0.3f),
+        text_region_create_centered(&text_render_pipeline_data, "restart?", Vec2{0, -0.4}, 0.05f)
+    };
 
     static const int N_PLANETS_MAX = 1000;
     static const int N_POINTS_MAX = 200000;
@@ -1637,7 +1823,7 @@ int main(int, char**)
 
     // Update current used input states
     UserInputState input_state;
-    user_input_state_initialized(&input_state, window);
+    user_input_state_initialize(&input_state);
 
     float freq_min = 60.f;
     float dt_max = 1.f / freq_min;
@@ -1661,84 +1847,121 @@ int main(int, char**)
         ImGui::NewFrame();
 
         // Update game user input stuff first
-        user_input_state_update(&input_state, window);
+        user_input_state_update(&input_state, &render_pipeline_data);
 
-        ImGui::Begin("Debug stuff", nullptr, ImGuiWindowFlags_NoTitleBar);
+        // Update clickable regions
+        text_region_update_n(text_regions, sizeof(text_regions) / sizeof(TextRegion), &input_state);
+
         if (score < 0)
         {
-            ImGui::OpenPopup("start-menu-proto");
-            ImGui::BeginPopupModal("start-menu-proto");
-            ImGui::Text("The goal is to sling particles to the upper right corner.\n"
-                        "Doing so accumulates points. Planets are added to create\n"
-                        "gravitational fields to pull particles.");
-            ImGui::Dummy(ImVec2{1, 30});
-            ImGui::Text("Controls");
-            ImGui::Dummy(ImVec2{1, 30});
-            ImGui::Text("L-CTRL  + LMB : Spawn a single particle");
-            ImGui::Text("L-SHIFT + LMB : Spawn a MANY particles");
-            ImGui::Text("          LMB : Spawn a planet");
-            ImGui::Dummy(ImVec2{1, 30});
-            if (ImGui::Button("START"))
+            // Check if start button text region was clicked
+            if (input_state.pressed.fields.left_mouse_button && (text_regions+START_MENU_BUTTON)->is_hovered)
             {
+                REPLAY_SFX(SFX_SCORE_POINT);
                 score = 0;
             }
-            ImGui::EndPopup();
         }
         else if (score < min_required_score)
         {
             // Update/reset environment state
             environment_update(&env, dt);
 
-            // Don't allow game interation if the debug panel is hovered
-            if (ImGui::IsWindowHovered())
+            // Flag to suppress in-game UI interations for this frame, only
+            bool suppress_all_in_game_user_input = false;
+
+#ifndef NDEBUG
+            // Debug parameter tuning window
+            ImGui::Begin("Debug stuff", nullptr, ImGuiWindowFlags_NoTitleBar);
+            suppress_all_in_game_user_input = ImGui::IsWindowHovered();
+            ImGui::Text("SCORE (%d) of (%d)", score, min_required_score);
+            ImGui::Dummy(ImVec2{1, 30});
+            ImGui::Text("Particles  : (%d)", particles.n_active);
+            ImGui::Text("Boundaries : (%d)", env.n_boundaries);
+            if (ImGui::SliderFloat("min update rate", (float*)(&freq_min), 30.0, 120.0))
             {
-                // TRAP
+                dt_max = 1./ freq_min;
+            }
+            ImGui::InputFloat2("gravity", (float*)(&env.gravity));
+            ImGui::SliderFloat("dampening", &env.dampening, 0.1f, 1.f);
+            ImGui::SliderFloat("max particle velocity", &particles.max_velocity, 0.5f, 5.f);
+            ImGui::SliderFloat("next planet mass", &next_planet_mass, 0.1f, 2.f);
+            ImGui::Checkbox("next gravity assymetric", &next_planet_assymetric_grav);
+            if (ImGui::SmallButton("Clear particles"))
+            {
+                particles_clear(&particles);
+            }
+            if (ImGui::SmallButton("Clear planets"))
+            {
+                planets_clear(&planets);
+            }
+            ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
+            ImGui::End();
+#endif // NDEBUG
+
+            // Don't allow game interation if the debug panel is hovered
+            if (suppress_all_in_game_user_input)
+            {
+                // PREVENT IN-GAME USER INPUTS
             }
             // Spawn single particle on click
             else if (input_state.current.fields.left_ctrl && input_state.pressed.fields.left_mouse_button)
             {
-                const Vec2 mouse_position_world =
-                    render_pipeline_get_screen_mouse_position(&render_pipeline_data);
-                particles_spawn_at(&particles, mouse_position_world);
+                if (aabb_within(&env.valid_placement, &input_state.mouse_position))
+                {
+                    particles_spawn_at(&particles, input_state.mouse_position);
+                }
             }
             // Spew particles from mouse
             else if (input_state.current.fields.left_shift && input_state.current.fields.left_mouse_button)
             {
-                const Vec2 mouse_position_world =
-                    render_pipeline_get_screen_mouse_position(&render_pipeline_data);
-                particles_spawn_at(&particles, mouse_position_world);
+                if (aabb_within(&env.valid_placement, &input_state.mouse_position))
+                {
+                    particles_spawn_at(&particles, input_state.mouse_position);
+                }
+
             }
             // Spawn single planet on click
             else if (input_state.pressed.fields.left_mouse_button)
             {
-                const Vec2 mouse_position_world =
-                    render_pipeline_get_screen_mouse_position(&render_pipeline_data);
-
-                if (next_planet_assymetric_grav)
+                if ((text_regions + IN_GAME_RETRY_LEVEL)->is_hovered)
                 {
-                    planets_spawn_at(&planets, mouse_position_world, Vec2{0, 1}, next_planet_mass);
+                    REPLAY_SFX(SFX_SCORE_POINT);
+                    score = 0;
+                    particles_clear(&particles);
+                    planets_clear(&planets);
+                }
+                else if ((text_regions + IN_GAME_CLEAR_PLANETS)->is_hovered)
+                {
+                    REPLAY_SFX(SFX_SCORE_POINT);
+                    planets_clear(&planets);
+                }
+                else if (!aabb_within(&env.valid_placement, &input_state.mouse_position))
+                {
+                    // Prevent out of bounds planet placement
+                }
+                else if (next_planet_assymetric_grav)
+                {
+                    planets_spawn_at(&planets, input_state.mouse_position, Vec2{0, 1}, next_planet_mass);
                 }
                 else
                 {
-                    planets_spawn_at(&planets, mouse_position_world, Vec2{0, 0}, next_planet_mass);
+                    planets_spawn_at(&planets, input_state.mouse_position, Vec2{0, 0}, next_planet_mass);
                 }
             }
             // Spawn / grab single planet which follows the cursor
             else if (input_state.current.fields.key_f)
             {
-                const Vec2 mouse_position_world =
-                    render_pipeline_get_screen_mouse_position(&render_pipeline_data);
                 if (planets.n_active > 0)
                 {
-                    planets.positions[0] = mouse_position_world;
+                    planets.positions[0] = input_state.mouse_position;
                 }
                 else if (next_planet_assymetric_grav)
                 {
-                    planets_spawn_at(&planets, mouse_position_world, Vec2{0, 1}, next_planet_mass);
+                    planets_spawn_at(&planets, input_state.mouse_position, Vec2{0, 1}, next_planet_mass);
                 }
                 else
                 {
-                    planets_spawn_at(&planets, mouse_position_world, Vec2{0, 0}, next_planet_mass);
+                    planets_spawn_at(&planets, input_state.mouse_position, Vec2{0, 0}, next_planet_mass);
                 }
             }
 
@@ -1753,10 +1976,7 @@ int main(int, char**)
                 {
                     if (vec2_length_squared(particles.velocities + i) > 0.f)
                     {
-#if defined(PLATFORM_SUPPORTS_AUDIO)
-                        al_replay_sound(sfx_sources[0], sfx_buffers[0]);
-#endif // defined(PLATFORM_SUPPORTS_AUDIO)
-
+                        REPLAY_SFX(SFX_SCORE_POINT);
                         ++score;
                     }
                     vec2_set_zero(particles.forces + i);
@@ -1792,72 +2012,34 @@ int main(int, char**)
                 AL_TEST_ERROR(alSourcef(audio_sources[16], AL_GAIN, gain));
             }
 #endif // defined(PLATFORM_SUPPORTS_AUDIO)
-
-            ImGui::Text("SCORE (%d) of (%d)", score, min_required_score);
-            ImGui::Dummy(ImVec2{1, 30});
-            ImGui::Text("Particles  : (%d)", particles.n_active);
-            ImGui::Text("Boundaries : (%d)", env.n_boundaries);
-            if (ImGui::SliderFloat("min update rate", (float*)(&freq_min), 30.0, 120.0))
-            {
-                dt_max = 1./ freq_min;
-            }
-            ImGui::InputFloat2("gravity", (float*)(&env.gravity));
-            ImGui::SliderFloat("dampening", &env.dampening, 0.1f, 1.f);
-            ImGui::SliderFloat("max particle velocity", &particles.max_velocity, 0.5f, 5.f);
-            ImGui::SliderFloat("next planet mass", &next_planet_mass, 0.1f, 2.f);
-            ImGui::Checkbox("next gravity assymetric", &next_planet_assymetric_grav);
-            if (ImGui::SmallButton("Clear particles"))
-            {
-                particles_clear(&particles);
-            }
-            if (ImGui::SmallButton("Clear planets"))
-            {
-                planets_clear(&planets);
-            }
-            ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
         }
         // Create a popup on win
         else
         {
-            ImGui::OpenPopup("YOU WIN!");
-            ImGui::BeginPopupModal("YOU WIN!");
-            ImGui::Text("Thanks for playing!");
-            if (ImGui::Button("Reset?"))
+            // Play a win SFX once
+            if (score < 2 * min_required_score)
             {
-#if defined(PLATFORM_SUPPORTS_AUDIO)
-                // Reset all tracks to spoopy speed
-                for (int z = 0; z < 17; ++z)
-                {
-                    AL_TEST_ERROR(alSourcef(audio_sources[z], AL_PITCH, 0.5f));
-                    AL_TEST_ERROR(alSourcef(audio_sources[z], AL_GAIN, 0.f));
-                }
-#endif  // defined(PLATFORM_SUPPORTS_AUDIO)
+                PLAY_SFX(SFX_RESTART_GAME);
+                score = 2 * min_required_score;
+            }
+
+            // Check for restart button press
+            if (input_state.pressed.fields.left_mouse_button && (text_regions+WIN_MENU_RESTART_BUTTON)->is_hovered)
+            {
+                PLAY_SFX(SFX_RESTART_GAME);
                 score = 0;
                 planets_clear(&planets);
                 particles_clear(&particles);
             }
-            else
-            {
+
 #if defined(PLATFORM_SUPPORTS_AUDIO)
-                // Reset all tracks to spoopy speed
-                for (int z = 0; z < 17; ++z)
-                {
-                    AL_TEST_ERROR(alSourcef(audio_sources[z], AL_GAIN, 0.f));
-                }
-                // Play some tracks at normal speed on win
-                AL_TEST_ERROR(alSourcef(audio_sources[5], AL_PITCH, 1.00f));
-                AL_TEST_ERROR(alSourcef(audio_sources[5], AL_GAIN, 0.25f));
-                AL_TEST_ERROR(alSourcef(audio_sources[9], AL_PITCH, 1.00f));
-                AL_TEST_ERROR(alSourcef(audio_sources[9], AL_GAIN, 0.25f));
-                AL_TEST_ERROR(alSourcef(audio_sources[11], AL_PITCH, 1.00f));
-                AL_TEST_ERROR(alSourcef(audio_sources[11], AL_GAIN, 0.25f));
-                AL_TEST_ERROR(alSourcef(audio_sources[13], AL_PITCH, 1.00f));
-                AL_TEST_ERROR(alSourcef(audio_sources[14], AL_GAIN, 0.25f));
-#endif  // defined(PLATFORM_SUPPORTS_AUDIO)
+            // Silence all tracks
+            for (int z = 0; z < 17; ++z)
+            {
+                AL_TEST_ERROR(alSourcef(audio_sources[z], AL_GAIN, 0.f));
             }
-            ImGui::EndPopup();
+#endif // defined(PLATFORM_SUPPORTS_AUDIO)
         }
-        ImGui::End();
 
         // TODO:
         // Render the game to a texture (IMGUI displays this image in a window)
@@ -1869,25 +2051,51 @@ int main(int, char**)
         glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT);
 
-        // Draw lines to screen
+        // Update shared draw data
         render_pipeline_update(&render_pipeline_data, display_w, display_h);
-        render_pipeline_draw_environment(&render_pipeline_data, &env);
-        render_pipeline_draw_planets(&render_pipeline_data, &planets);
-        render_pipeline_draw_particles(&render_pipeline_data, &particles);
+
+        // Draw main menu
+        if (score < 0)
+        {
+            text_region_draw(text_regions + START_MENU_TITLE,  &text_render_pipeline_data, &render_pipeline_data);
+            text_region_draw(text_regions + START_MENU_BUTTON, &text_render_pipeline_data, &render_pipeline_data);
+        }
+        // Draw game data
+        else if (score < min_required_score)
+        {
+            // Draw the game level data
+            render_pipeline_draw_environment(&render_pipeline_data, &env);
+            render_pipeline_draw_planets(&render_pipeline_data, &planets);
+            render_pipeline_draw_particles(&render_pipeline_data, &particles);
+
+            // Show current score
+            {
+                char score_buffer[100];
+                std::sprintf(score_buffer, "Score: %d", score);
+                text_render_pipeline_draw(&text_render_pipeline_data, &render_pipeline_data, score_buffer, Vec2{1.f, 0.25}, 1, 1, 1, 1, 0.05f);
+            }
+
+            // Show control help text
+            text_render_pipeline_draw(&text_render_pipeline_data, &render_pipeline_data, "L-CTRL & L-CLICK", Vec2{1.f,  +0.00}, 0.7f, 0.7f, 0.7f, 1.0f, 0.025f);
+            text_render_pipeline_draw(&text_render_pipeline_data, &render_pipeline_data, "Spawn a single particle", Vec2{1.1f,  -0.05}, 0.3f, 0.7f, 0.7f, 1.0f, 0.025f);
+            text_render_pipeline_draw(&text_render_pipeline_data, &render_pipeline_data, "L-SHIFT & L-CLICK", Vec2{1.f, -0.10}, 0.7f, 0.7f, 0.7f, 1.0f, 0.025f);
+            text_render_pipeline_draw(&text_render_pipeline_data, &render_pipeline_data, "Spawn a MANY particles", Vec2{1.1f, -0.15}, 0.3f, 0.7f, 0.7f, 1.0f, 0.025f);
+            text_render_pipeline_draw(&text_render_pipeline_data, &render_pipeline_data, "L-CLICK", Vec2{1.f, -0.20}, 0.7f, 0.7f, 0.7f, 1.0f, 0.025f);
+            text_render_pipeline_draw(&text_render_pipeline_data, &render_pipeline_data, "Spawn a planet", Vec2{1.1f, -0.25}, 0.3f, 0.7f, 0.7f, 1.0f, 0.025f);
+
+            // Show in-game buttons
+            text_region_draw(text_regions + IN_GAME_RETRY_LEVEL,  &text_render_pipeline_data, &render_pipeline_data);
+            text_region_draw(text_regions + IN_GAME_CLEAR_PLANETS, &text_render_pipeline_data, &render_pipeline_data);
+        }
+        // Draw win screen
+        else
+        {
+            text_region_draw(text_regions + WIN_MENU_WIN_TEXT,  &text_render_pipeline_data, &render_pipeline_data);
+            text_region_draw(text_regions + WIN_MENU_RESTART_BUTTON, &text_render_pipeline_data, &render_pipeline_data);
+        }
 
         // Draw imgui stuff to screen
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
-
-        // Text rendering in the main loop
-
-        // Draw rendered text to screen
-        text_render_pipeline_draw(&text_render_pipeline_data, &render_pipeline_data, "SNAD", Vec2{0, 0.97}, 1, 1, 1);
-
-        {
-            char score_buffer[100];
-            std::sprintf(score_buffer, "Score: %d", score);
-            text_render_pipeline_draw(&text_render_pipeline_data, &render_pipeline_data, score_buffer, Vec2{1.f, 0.25}, 1, 1, 1);
-        }
 
         glfwSwapBuffers(window);
     }
@@ -1902,6 +2110,7 @@ int main(int, char**)
 
     // Cleanup game state
     render_pipeline_destroy(&render_pipeline_data);
+    text_render_pipeline_destroy(&text_render_pipeline_data);
     planets_destroy(&planets);
     particles_destroy(&particles);
     environment_destroy(&env);
