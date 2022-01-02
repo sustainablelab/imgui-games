@@ -24,6 +24,11 @@
 #endif
 #endif  // defined(PLATFORM_SUPPORTS_AUDIO)
 
+// Text rendering
+#include <ft2build.h>
+#include FT_FREETYPE_H
+#include <map>
+
 // TODO
 //
 //  - Add text rendering (e.g. for score, menus)
@@ -484,6 +489,189 @@ void user_input_state_update(UserInputState* const state, GLFWwindow* const wind
     state->pressed.mask = (state->current.mask ^ state->previous.mask) & state->current.mask;
     state->released.mask = (state->current.mask ^ state->previous.mask) & state->previous.mask;
     std::memcpy(&state->previous, &state->current, sizeof(Buttons));  
+}
+
+// Text rendering structs
+
+struct BitmapWidthRows_Vec2 // freetype.h: FT_GlyphSlotRec_
+{
+    unsigned int x; // bitmap.width
+    unsigned int y; // bitmap.rows
+};
+struct BitmapLeftTop_Vec2 // freetype.h: FT_GlyphSlotRec_
+{
+    FT_Int x; // bitmap_left
+    FT_Int y; // bitmap_top
+};
+
+struct Character {
+    unsigned int TextureID;  // ID handle of the glyph texture
+    /* glm::ivec2   Size;       // Size of glyph */
+    /* glm::ivec2   Bearing;    // Offset from baseline to left/top of glyph */
+    BitmapWidthRows_Vec2   Size;       // Size of glyph
+    BitmapLeftTop_Vec2     Bearing;    // Offset from baseline to left/top of glyph
+    FT_Pos Advance;    // Offset to advance to next glyph
+};
+
+// Make a Character map (for looking up glyphs).
+std::map<char, Character> Characters;
+
+struct TextRenderPipelineData
+{
+    GLuint text_shader;
+    GLuint text_vao;
+    GLuint text_vbo;
+};
+
+// Text rendering funcs
+
+void text_render_pipeline(TextRenderPipelineData* const r_data)
+{ // Render glyph (text character) textures onto 2D quads.
+
+    // Shader code is from:
+    // https://learnopengl.com/In-Practice/Text-Rendering
+
+    // Enable alpha blending (so glyph background is transparent)
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+    // Create shader for text rendering
+    {
+        // VERTEX SHADER
+        // Multiply coordinates with a projection matrix
+        // to get texture coordinates (TexCoords).
+        const GLuint vert_shader = create_shader_source(
+            GL_VERTEX_SHADER,
+            R"VertexShader(
+                #version 330 core
+                layout (location = 0) in vec4 vertex; // <vec2 pos, vec2 tex>
+                out vec2 TexCoords;
+
+                uniform mat4 projection;
+
+                void main()
+                {
+                    gl_Position = projection * vec4(vertex.xy, 0.0, 1.0);
+                    TexCoords = vertex.zw;
+                }
+            )VertexShader"
+        );
+
+        // FRAGMENT SHADER
+        // Get the color (gray value) from the texture RED channel.
+        // Multiply by a color to adjust the text's final color.
+        const GLuint frag_shader = create_shader_source(
+            GL_FRAGMENT_SHADER,
+            R"FragmentShader(
+                #version 330 core
+                in vec2 TexCoords;
+                out vec4 color;
+
+                uniform sampler2D text;
+                uniform vec3 textColor;
+
+                void main()
+                {    
+                    vec4 sampled = vec4(1.0, 1.0, 1.0, texture(text, TexCoords).r);
+                    color = vec4(textColor, 1.0) * sampled;
+                } 
+            )FragmentShader"
+        );
+
+        // Link shaders into program `text_shader`
+        r_data->text_shader = glCreateProgram();
+        glAttachShader(r_data->text_shader, vert_shader);
+        glAttachShader(r_data->text_shader, frag_shader);
+        glLinkProgram(r_data->text_shader);
+        { // Make sure that worked.
+            int success;
+            glGetProgramiv(r_data->text_shader, GL_LINK_STATUS, &success);
+            if(!success)
+            {
+                char infoLog[512];
+                glGetProgramInfoLog(r_data->text_shader, 512, NULL, infoLog);
+                printf("GL ERROR : shader program linkage failed with:\n---\n\n%s\n---\n", infoLog);
+                /* fflush(stdout); */
+                abort();
+            }
+        }
+
+        // Cleanup shader source
+        glDeleteShader(vert_shader);
+        glDeleteShader(frag_shader);
+    }
+
+    // Setup VBO and VAO to render quads:
+    // each quad: 6 vertices, 4 floats
+    // Create VAO and VBO
+    glGenVertexArrays(1, &r_data->text_vao);
+    glGenBuffers(1, &r_data->text_vbo);
+    // Set VAO and VBO to OpenGL globals?
+    glBindVertexArray(r_data->text_vao);
+    glBindBuffer(GL_ARRAY_BUFFER, r_data->text_vbo);
+    // Do... a render thing?
+    glBufferData(GL_ARRAY_BUFFER, sizeof(float)*6*4, NULL, GL_DYNAMIC_DRAW);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 4, GL_FLOAT, GL_FALSE, 4 * sizeof(float), 0);
+    // Unset VBO/VAO
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    glBindVertexArray(0);
+}
+
+// TODO: add input args text,x,y,scale,color
+void render_text(TextRenderPipelineData* const r_data)
+{
+    float x = 50;
+    float y = 50;
+    float scale = 1.0;
+
+    // activate corresponding render state
+    /* r_data->text_shader.Use(); */
+    glUseProgram(r_data->text_shader);
+    glUniform3f(
+            glGetUniformLocation(
+                /* r_data->text_shader.Program, */
+                r_data->text_shader,
+                "textColor"),
+            1.0f, // color.x
+            0.8f, // color.y
+            0.1f  // color.z
+            );
+    glActiveTexture(GL_TEXTURE0);
+    glBindVertexArray(r_data->text_vao);
+
+    // LOOP OVER TEXT STARTS
+    // Just one character for now.
+    /* Character ch = Characters[52]; */
+    Character ch = Characters['A'];
+    float xpos = x + ch.Bearing.x * scale;
+    float ypos = y - (ch.Size.y - ch.Bearing.y) * scale;
+    float w = ch.Size.x * scale;
+    float h = ch.Size.y * scale;
+    // VBO
+    float vertices[6][4] = {
+        { xpos,     ypos +h, 0.0f, 0.0f },
+        { xpos,     ypos,    0.0f, 1.0f },
+        { xpos + w, ypos,    1.0f, 1.0f },
+        { xpos,     ypos +h, 0.0f, 0.0f },
+        { xpos + w, ypos,    1.0f, 1.0f },
+        { xpos + w, ypos +h, 1.0f, 0.0f }
+    };
+    // render glyph texture over quad
+    glBindTexture(GL_TEXTURE_2D, ch.TextureID);
+    // update content of VBO memory
+    glBindBuffer(GL_ARRAY_BUFFER, r_data->text_vbo);
+    glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(vertices), vertices);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    // render quad
+    glDrawArrays(GL_TRIANGLES, 0, 6);
+    // now advance cursors for next glyph
+    // (note that advance is number of 1/64 pixels)
+    x += (ch.Advance >> 6) * scale; // bitshift by 6 to get value in pixels (2^6 = 64)
+
+    // LOOP OVER TEXT STOPS
+    glBindVertexArray(0);
+    glBindTexture(GL_TEXTURE_2D, 0);
 }
 
 struct RenderPipelineData
@@ -1147,6 +1335,105 @@ static inline ALenum al_play_sound(const GLuint sound_source, const GLuint sound
 
 int main(int, char**)
 {
+    // Text rendering setup
+
+    // Initialize the FreeType library
+    FT_Library ft;
+    if (FT_Init_FreeType(&ft))
+    {
+        std::printf("ERROR::FREETYPE: Could not init FreeType Library\n");
+        return -1;
+    }
+
+    // Load font SyneMono
+    // https://fonts.google.com/specimen/Syne+Mono
+    FT_Face face;
+    if (FT_New_Face(ft, "assets/SyneMono-Regular.ttf", 0, &face))
+    {
+        std::printf("ERROR::FREETYPE: Failed to load font\n");
+        return -1;
+    }
+
+    // Define pixel font size
+    FT_Set_Pixel_Sizes(
+            face,
+            0, // width: "0" means calc width from height
+            48 // height
+            );
+
+    // Make sure we can load glyphs. Try loading an 'X'.
+    if (FT_Load_Char(face, 'X', FT_LOAD_RENDER))
+    {
+        std::printf("ERROR::FREETYPE: Failed to load Glyph\n");
+        return -1;
+    }
+
+    // disable byte-alignment restriction
+    //      OpenGL requires all textures have a 4-byte alignment.
+    //      But when we put each Glyph on a texture, we only need
+    //      a single byte per pixel.
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+
+    for (unsigned char c = 0; c < 128; c++)
+    {
+        // load character glyph
+        if (FT_Load_Char(face, c, FT_LOAD_RENDER))
+        {
+            std::printf("ERROR::FREETYPE: Failed to load Glyph\n");
+            continue;
+        }
+        // generate texture
+        unsigned int texture;
+        glGenTextures(1, &texture);
+        glBindTexture(GL_TEXTURE_2D, texture);
+        // define texture image
+        //      Texturing allows elements of an image array to be
+        //      read by shaders.
+        glTexImage2D(
+                GL_TEXTURE_2D, // target texture
+                0, // level-of-detail (0 is base image level)
+                GL_RED, // each element is a single red component
+                // Red? Yep, want a grayscale 8-bit image.
+                // Just need one channel of the 4-byte RGBA.
+                face->glyph->bitmap.width, // width of texture image
+                face->glyph->bitmap.rows, // height of texture image
+                0, // border (must be 0)
+                GL_RED, // format of pixel data
+                GL_UNSIGNED_BYTE, // data tyep of pixel data
+                face->glyph->bitmap.buffer // ptr to image data
+                );
+        // set texture options
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        // now store character for later use
+        Character character =
+        {
+            texture,
+            BitmapWidthRows_Vec2{
+                face->glyph->bitmap.width,
+                face->glyph->bitmap.rows
+            },
+            BitmapLeftTop_Vec2{
+                face->glyph->bitmap_left,
+                face->glyph->bitmap_top
+            },
+            face->glyph->advance.x
+        };
+        Characters.insert(std::pair<char, Character>(c, character));
+    }
+
+    // Clear the FreeType resources
+    FT_Done_Face(face);
+    FT_Done_FreeType(ft);
+
+    /* else */
+    /* { */
+    /*     std::printf("Loaded glyph\n"); */
+    /*     fflush(stdout); */
+    /* } */
+
 #if defined(PLATFORM_SUPPORTS_AUDIO)
     // Setup audio device
     ALCdevice* const audio_device = alcOpenDevice(alcGetString(NULL, ALC_DEVICE_SPECIFIER));
@@ -1272,6 +1559,10 @@ int main(int, char**)
 #if defined(PLATFORM_WINDOWS)
     glewInit();
 #endif
+
+    // Setup text rendering
+    TextRenderPipelineData text_render_pipeline_data;
+    text_render_pipeline(&text_render_pipeline_data);
 
     // Setup Dear ImGui context
     IMGUI_CHECKVERSION();
@@ -1602,6 +1893,11 @@ int main(int, char**)
 
         // Draw imgui stuff to screen
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+
+        // Text rendering in the main loop
+
+        // Draw rendered text to screen
+        render_text(&text_render_pipeline_data);
 
         glfwSwapBuffers(window);
     }

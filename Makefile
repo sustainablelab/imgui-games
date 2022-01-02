@@ -80,7 +80,9 @@ ifeq ($(OS), Windows_NT)
 	ECHO_MESSAGE = "MinGW"
 	LIBS += -lglfw3 -lgdi32 -lopengl32 -limm32 -lglew32 -lglu32
 	LIBS += `pkg-config --libs freealut`
+	LIBS += `pkg-config --libs freetype2`
 	CXXFLAGS += `pkg-config --cflags glfw3`
+	CXXFLAGS += `pkg-config --cflags freetype2`
 	CXXFLAGS += -DPLATFORM_WINDOWS
 	CXXFLAGS += -DPLATFORM_SUPPORTS_AUDIO
 	CFLAGS = $(CXXFLAGS)
