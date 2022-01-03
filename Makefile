@@ -84,6 +84,7 @@ endif
 
 ifeq ($(OS), Windows_NT)
 	ECHO_MESSAGE = "MinGW"
+	LIBS += -mwindows
 	LIBS += -lglfw3 -lgdi32 -lopengl32 -limm32 -lglew32 -lglu32
 	LIBS += `pkg-config --libs freealut`
 	LIBS += `pkg-config --libs freetype2`
@@ -137,3 +138,27 @@ lib-tags: main.cpp
 	rm -f headers-windows.txt
 	ctags -f lib-tags --c-kinds=+p -L headers-posix.txt
 	rm -f headers-posix.txt
+.PHONY: copy-dlls
+copy-dlls:
+ifeq ($(OS), Windows_NT)
+	cp /mingw64/bin/libgcc_s_seh-1.dll ./windist/
+	cp /mingw64/bin/libstdc++-6.dll ./windist/
+	cp /mingw64/bin/libalut-0.dll ./windist/
+	cp /mingw64/bin/libfreetype-6.dll ./windist/
+	cp /mingw64/bin/glew32.dll ./windist/
+	cp /mingw64/bin/glfw3.dll ./windist/
+	cp /mingw64/bin/libopenal-1.dll ./windist/
+	cp /mingw64/bin/libwinpthread-1.dll ./windist/
+	cp /mingw64/bin/libbz2-1.dll ./windist/
+	cp /mingw64/bin/libbrotlidec.dll ./windist/
+	cp /mingw64/bin/libharfbuzz-0.dll ./windist/
+	cp /mingw64/bin/libpng16-16.dll ./windist/
+	cp /mingw64/bin/zlib1.dll ./windist/
+	cp /mingw64/bin/libbrotlicommon.dll ./windist/
+	cp /mingw64/bin/libglib-2.0-0.dll ./windist/
+	cp /mingw64/bin/libgraphite2.dll ./windist/
+	cp /mingw64/bin/libintl-8.dll ./windist/
+	cp /mingw64/bin/libpcre-1.dll ./windist/
+	cp /mingw64/bin/libiconv-2.dll ./windist/
+endif
+
