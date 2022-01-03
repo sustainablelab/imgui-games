@@ -1689,22 +1689,53 @@ int main(int, char**)
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 0);
 
+    // Use this width and height if not fullscreen
     int small = GAME_DEFAULT_WINDOW_HEIGHT;
     int display_w = 2 * small, display_h = small;
+    printf("GAME_DEFAULT_WINDOW_HEIGHT: %d", GAME_DEFAULT_WINDOW_HEIGHT);
+    fflush(stdout);
 
-    // Create window with graphics context
-    GLFWwindow* window = glfwCreateWindow(
-        display_w,
-        display_h,                          // width, height
-        "snad",  // title
-        NULL,                               // monitor
-        NULL                                // share
-        );
+    // Get info about this monitor to do a fullscreen.
+    GLFWmonitor* monitor = glfwGetPrimaryMonitor();
+    const GLFWvidmode* mode = glfwGetVideoMode(monitor);
+    printf("VideoMode width: %d, height: %d\n", mode->width, mode->height);
+    fflush(stdout);
+
+    const bool fullscreen = true;
+    GLFWwindow* window = NULL;
+
+    if (fullscreen)
+    {
+        display_w = mode->width;
+        display_h = mode->height;
+        // Create fullscreen window
+        window = glfwCreateWindow(
+            // Use full width and height to avoid Sony Bravia "scene select"
+            mode->width, // use full width
+            mode->height, // use full height
+            "RENDER-TEXT",  // const char* title
+            /* NULL, // GLFWmonitor* monitor - NULL be WINDOWED*/
+            monitor, // Go FULLSCREEN
+            NULL  // GLFWwindow* share
+            );
+    }
+    else
+    {
+        // Create window with graphics context
+        window = glfwCreateWindow(
+            display_w, // int width
+            display_h, // int height
+            "snad",    // title
+            NULL,      // GLFWmonitor* monitor - NULL be WINDOWED
+            NULL       // GLFWwindow* share
+            );
+    }
 
     if (window == NULL)
         return 1;
     glfwMakeContextCurrent(window);
     glfwSwapInterval(1); // Enable vsync
+    glfwSetKeyCallback(window, key_callback);
 
 #if defined(PLATFORM_WINDOWS)
     glewInit();

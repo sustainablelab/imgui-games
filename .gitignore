@@ -1,5 +1,6 @@
 tags
 lib-tags
+cscope.files
 libs.txt
 *.o
 *.exe
