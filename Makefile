@@ -117,6 +117,9 @@ all: $(EXE)
 
 $(EXE): $(OBJS)
 	$(CXX) -o $@ $^ $(CXXFLAGS) $(LIBS)
+ifeq ($(OS), Windows_NT)
+	mv $@ ./windist
+endif
 
 clean:
 	rm -f $(EXE) $(OBJS)
