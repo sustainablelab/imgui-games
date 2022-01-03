@@ -1025,6 +1025,10 @@ struct TextRenderPipelineData
 
 void text_render_pipeline_initialize(TextRenderPipelineData* const r_data, const char* font_source_filename, const int pix_per_coord)
 {
+#if defined(PLATFORM_WINDOWS)
+    char win_filename[100];
+    sprintf(win_filename, "../%s", font_source_filename);
+#endif
     // Storage for font character (glyph) data
     r_data->glyphs = (Character*)std::malloc(sizeof(Character) * 128);
 
@@ -1042,7 +1046,11 @@ void text_render_pipeline_initialize(TextRenderPipelineData* const r_data, const
     // Load font SyneMono
     // https://fonts.google.com/specimen/Syne+Mono
     FT_Face face;
+#if defined(PLATFORM_WINDOWS)
+    if (FT_New_Face(ft, win_filename, 0, &face))
+#else
     if (FT_New_Face(ft, font_source_filename, 0, &face))
+#endif
     {
         std::printf("ERROR::FREETYPE: Failed to load font\n");
         std::abort();
@@ -1502,9 +1510,12 @@ static ALuint read_wav_file_to_buffer(const char* filename)
     ALvoid *data;
     ALboolean loop = AL_FALSE;
 
+    char win_filename[100];
+    sprintf(win_filename, "../%s", filename);
+
     // Parse .wav format
     alutLoadWAVFile(
-            (ALbyte *)filename, // ALbyte *fileName
+            (ALbyte *)win_filename, // ALbyte *fileName
             &format, // ALenum *format
             &data, // void **data
             &size, // ALsizei *size
