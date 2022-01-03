@@ -48,6 +48,16 @@ static void glfw_error_callback(int error, const char* description)
     fprintf(stderr, "Glfw Error %d: %s\n", error, description);
 }
 
+static void key_callback(GLFWwindow* window, int key, int scancode, int action, int mods)
+{ // Executes when user does a key
+
+    // Esc -- quit (useful for quitting from fullscreen mode)
+    if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS)
+    {
+        glfwSetWindowShouldClose(window, GL_TRUE);
+    }
+}
+
 
 // for each point
 //    for each line
