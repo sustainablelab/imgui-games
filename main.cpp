@@ -1025,10 +1025,14 @@ struct TextRenderPipelineData
 
 void text_render_pipeline_initialize(TextRenderPipelineData* const r_data, const char* font_source_filename, const int pix_per_coord)
 {
-#if defined(PLATFORM_WINDOWS)
-    char win_filename[100];
-    sprintf(win_filename, "../%s", font_source_filename);
-#endif
+
+    // Assets folder depends on OS
+    // (because Windows .exe and all of its .dlls are in the `windist` folder)
+    char assets_filename[100];
+    sprintf(assets_filename, "%s/%s", SNAD_ASSET_DIRECTORY, font_source_filename);
+    puts(assets_filename);
+    fflush(stdout);
+
     // Storage for font character (glyph) data
     r_data->glyphs = (Character*)std::malloc(sizeof(Character) * 128);
 
@@ -1046,11 +1050,7 @@ void text_render_pipeline_initialize(TextRenderPipelineData* const r_data, const
     // Load font SyneMono
     // https://fonts.google.com/specimen/Syne+Mono
     FT_Face face;
-#if defined(PLATFORM_WINDOWS)
-    if (FT_New_Face(ft, win_filename, 0, &face))
-#else
-    if (FT_New_Face(ft, font_source_filename, 0, &face))
-#endif
+    if (FT_New_Face(ft, assets_filename, 0, &face))
     {
         std::printf("ERROR::FREETYPE: Failed to load font\n");
         std::abort();
@@ -1504,18 +1504,22 @@ static ALuint read_wav_file_to_buffer(const char* filename)
     ALuint buffer;
     AL_TEST_ERROR_RET(alGenBuffers(1, &buffer), AL_NONE);
 
+    // Assets folder depends on OS
+    // (because Windows .exe and all of its .dlls are in the `windist` folder)
+    char assets_filename[100];
+    sprintf(assets_filename, "%s/%s", SNAD_ASSET_DIRECTORY, filename);
+    puts(assets_filename);
+    fflush(stdout);
+
 #if defined(PLATFORM_WINDOWS)
     ALsizei size, freq;
     ALenum format;
     ALvoid *data;
     ALboolean loop = AL_FALSE;
 
-    char win_filename[100];
-    sprintf(win_filename, "../%s", filename);
-
     // Parse .wav format
     alutLoadWAVFile(
-            (ALbyte *)win_filename, // ALbyte *fileName
+            (ALbyte *)assets_filename, // ALbyte *fileName
             &format, // ALenum *format
             &data, // void **data
             &size, // ALsizei *size
@@ -1524,10 +1528,10 @@ static ALuint read_wav_file_to_buffer(const char* filename)
             );
 #else
     /* load data */
-    WaveInfo* const wave = WaveOpenFileForReading(filename);
+    WaveInfo* const wave = WaveOpenFileForReading(assets_filename);
     if (wave == nullptr)
     {
-        std::printf("[read_wav_file_to_buffer] FILENAME (%s) NOT FOUND", filename);
+        std::printf("[read_wav_file_to_buffer] FILENAME (%s) NOT FOUND", assets_filename);
         return AL_NONE;
     }
 
@@ -1594,7 +1598,6 @@ static inline ALenum al_play_sound(const GLuint sound_source, const GLuint sound
 
 #endif // defined(PLATFORM_SUPPORTS_AUDIO)
 
-
 int main(int, char**)
 {
 #if defined(PLATFORM_SUPPORTS_AUDIO)
@@ -1647,8 +1650,8 @@ int main(int, char**)
     };
 
     const ALuint sfx_buffers[2] = {
-        read_wav_file_to_buffer("assets/smw_coin.wav"),
-        read_wav_file_to_buffer("assets/smb3_power-up.wav"),
+        read_wav_file_to_buffer("smw_coin.wav"),
+        read_wav_file_to_buffer("smb3_power-up.wav"),
     };
 
     al_play_sound(sfx_source, sfx_buffers[0]);
@@ -1667,23 +1670,23 @@ int main(int, char**)
 
     // Load music
     const ALuint audio_track_buffers[17] = {
-        read_wav_file_to_buffer("assets/track_1.wav"),
-        read_wav_file_to_buffer("assets/track_2.wav"),
-        read_wav_file_to_buffer("assets/track_3.wav"),
-        read_wav_file_to_buffer("assets/track_4.wav"),
-        read_wav_file_to_buffer("assets/track_5.wav"),
-        read_wav_file_to_buffer("assets/track_6.wav"),
-        read_wav_file_to_buffer("assets/track_7.wav"),
-        read_wav_file_to_buffer("assets/track_8.wav"),
-        read_wav_file_to_buffer("assets/track_9.wav"),
-        read_wav_file_to_buffer("assets/track_10.wav"),
-        read_wav_file_to_buffer("assets/track_11.wav"),
-        read_wav_file_to_buffer("assets/track_12.wav"),
-        read_wav_file_to_buffer("assets/track_13.wav"),
-        read_wav_file_to_buffer("assets/track_14.wav"),
-        read_wav_file_to_buffer("assets/track_15.wav"),
-        read_wav_file_to_buffer("assets/track_1.wav"),
-        read_wav_file_to_buffer("assets/track_14.wav")
+        read_wav_file_to_buffer("track_1.wav"),
+        read_wav_file_to_buffer("track_2.wav"),
+        read_wav_file_to_buffer("track_3.wav"),
+        read_wav_file_to_buffer("track_4.wav"),
+        read_wav_file_to_buffer("track_5.wav"),
+        read_wav_file_to_buffer("track_6.wav"),
+        read_wav_file_to_buffer("track_7.wav"),
+        read_wav_file_to_buffer("track_8.wav"),
+        read_wav_file_to_buffer("track_9.wav"),
+        read_wav_file_to_buffer("track_10.wav"),
+        read_wav_file_to_buffer("track_11.wav"),
+        read_wav_file_to_buffer("track_12.wav"),
+        read_wav_file_to_buffer("track_13.wav"),
+        read_wav_file_to_buffer("track_14.wav"),
+        read_wav_file_to_buffer("track_15.wav"),
+        read_wav_file_to_buffer("track_1.wav"),
+        read_wav_file_to_buffer("track_14.wav")
     };
 
     // Start playing all tracks
@@ -1782,7 +1785,7 @@ int main(int, char**)
 
     // Setup text rendering
     TextRenderPipelineData text_render_pipeline_data;
-    text_render_pipeline_initialize(&text_render_pipeline_data, "assets/SyneMono-Regular.ttf", 400);
+    text_render_pipeline_initialize(&text_render_pipeline_data, "SyneMono-Regular.ttf", 400);
 
     // Initialize game level
     Environment env;

@@ -68,6 +68,7 @@ ifeq ($(UNAME_S), Linux) #LINUX
 	CXXFLAGS += `pkg-config --cflags glfw3`
 	CXXFLAGS += `pkg-config --cflags freetype2`
 	CXXFLAGS += "-DPLATFORM_SUPPORTS_AUDIO"
+	CXXFLAGS += -DSNAD_ASSET_DIRECTORY=\"assets\"
 	CFLAGS = $(CXXFLAGS)
 endif
 
@@ -92,6 +93,8 @@ ifeq ($(OS), Windows_NT)
 	CXXFLAGS += `pkg-config --cflags freetype2`
 	CXXFLAGS += -DPLATFORM_WINDOWS
 	CXXFLAGS += -DPLATFORM_SUPPORTS_AUDIO
+	CXXFLAGS += -DSNAD_ASSET_DIRECTORY=\"../assets\"
+
 	CFLAGS = $(CXXFLAGS)
 
 	## TODO : [ADD OPENAL FLAGS FOR WINDOWS]
@@ -164,4 +167,3 @@ ifeq ($(OS), Windows_NT)
 	cp /mingw64/bin/libpcre-1.dll ./windist/
 	cp /mingw64/bin/libiconv-2.dll ./windist/
 endif
-
