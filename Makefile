@@ -32,7 +32,7 @@ UNAME_S := $(shell uname -s)
 
 LINUX_AL_LIBS = -lopenal -laudio
 LINUX_GL_LIBS = -lGL
-CXXFLAGS += -I./utility -g -Wall -Wformat -DGAME_DEFAULT_WINDOW_HEIGHT=600
+CXXFLAGS += -I./utility -g -Wall -Wformat -DGAME_DEFAULT_WINDOW_HEIGHT=600 -DGAME_DEFAULT_FULLSCREEN=0
 
 # Disable build optimizations
 ifeq ($(DEBUG),yes)

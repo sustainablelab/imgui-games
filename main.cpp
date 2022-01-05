@@ -1725,7 +1725,7 @@ int main(int, char**)
     printf("VideoMode width: %d, height: %d\n", mode->width, mode->height);
     fflush(stdout);
 
-    const bool fullscreen = true;
+    const bool fullscreen = GAME_DEFAULT_FULLSCREEN;
     GLFWwindow* window = NULL;
 
     if (fullscreen)
