@@ -1714,9 +1714,9 @@ int main(int, char**)
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 0);
 
     // Use this width and height if not fullscreen
-    int small = GAME_DEFAULT_WINDOW_HEIGHT;
-    int display_w = 2 * small, display_h = small;
-    printf("GAME_DEFAULT_WINDOW_HEIGHT: %d", GAME_DEFAULT_WINDOW_HEIGHT);
+    int display_w = 2 * GAME_DEFAULT_WINDOW_HEIGHT;
+    int display_h = GAME_DEFAULT_WINDOW_HEIGHT;
+    printf("GAME_DEFAULT_WINDOW_HEIGHT: %d\n", GAME_DEFAULT_WINDOW_HEIGHT);
     fflush(stdout);
 
     // Get info about this monitor to do a fullscreen.
