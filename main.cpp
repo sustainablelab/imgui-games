@@ -188,11 +188,12 @@ void environment_destroy(Environment* const env)
 
 struct Particles
 {
+    int* left_shift_index_buffer;
     Vec2* positions_previous;
     Vec2* positions;
-    Vec2* velocities_previous;
     Vec2* velocities;
     Vec2* forces;
+    bool* alive;
     int n_active;
     int n_max;
     float max_velocity;
@@ -200,20 +201,22 @@ struct Particles
 
 void particles_initialize(Particles* const ps, const int particle_count)
 {
+    ps->left_shift_index_buffer = (int*)std::malloc(sizeof(int) * particle_count);
+
     ps->positions_previous = (Vec2*)std::malloc(sizeof(Vec2) * particle_count);
     vec2_set_zero_n(ps->positions_previous, particle_count);
 
     ps->positions = (Vec2*)std::malloc(sizeof(Vec2) * particle_count);
     vec2_set_zero_n(ps->positions, particle_count);
 
-    ps->velocities_previous = (Vec2*)std::malloc(sizeof(Vec2) * particle_count);
-    vec2_set_zero_n(ps->velocities_previous, particle_count);
-
     ps->velocities = (Vec2*)std::malloc(sizeof(Vec2) * particle_count);
     vec2_set_zero_n(ps->velocities, particle_count);
 
     ps->forces = (Vec2*)std::malloc(sizeof(Vec2) * particle_count);
     vec2_set_zero_n(ps->forces, particle_count);
+
+    ps->alive = (bool*)std::malloc(sizeof(bool) * particle_count);
+    std::memset(ps->alive, 0, sizeof(bool) * particle_count);
 
     ps->n_active = 0;
     ps->n_max = particle_count;
@@ -231,8 +234,8 @@ void particles_spawn_at(Particles* const ps, const Vec2 position)
     vec2_set(ps->positions + ps->n_active, &position);
     vec2_set(ps->positions_previous + ps->n_active, &position);
     vec2_set_zero(ps->velocities + ps->n_active);
-    vec2_set_zero(ps->velocities_previous + ps->n_active);
     vec2_set_zero(ps->forces + ps->n_active);
+    ps->alive[ps->n_active] = true;
 
     // Increment number of active particles
     ++ps->n_active;
@@ -243,15 +246,59 @@ void particles_clear(Particles* const ps)
     ps->n_active = 0;
 }
 
+inline void particles_prune_dead(Particles* const ps)
+{
+    // Shift all "alive" particles leftward in the arrays
+    int n_particles_alive = 0;
+    for (int i = 0; i < ps->n_active; ++i)
+    {
+        if (ps->alive[i])
+        {
+            ps->left_shift_index_buffer[n_particles_alive] = i;
+            ++n_particles_alive;
+        }
+    }
+
+    // Do nothing if all particles are alive
+    if (n_particles_alive == ps->n_active)
+    {
+        return;
+    }
+
+    // Shift each component seperately because, at least theoretically, this should be faster due to cache coherency.
+    // TODO(performance) does doing it in one loop and letting the compiler figure it out work better?
+    for (int s = 0; s < n_particles_alive; ++s)
+    {
+        const int j = ps->left_shift_index_buffer[s];
+        ps->positions_previous[s] = ps->positions_previous[j];
+    }
+    for (int s = 0; s < n_particles_alive; ++s)
+    {
+        const int j = ps->left_shift_index_buffer[s];
+        ps->positions[s] = ps->positions[j];
+    }
+    for (int s = 0; s < n_particles_alive; ++s)
+    {
+        const int j = ps->left_shift_index_buffer[s];
+        ps->velocities[s] = ps->velocities[j];
+    }
+    for (int s = 0; s < n_particles_alive; ++s)
+    {
+        const int j = ps->left_shift_index_buffer[s];
+        ps->forces[s] = ps->forces[j];
+    }
+
+    // All remaining particles are alive
+    std::memset(ps->alive, 0xFF, n_particles_alive);
+
+    // Finally set the number of "alive" particles as the active particle count
+    ps->n_active = n_particles_alive;
+}
+
 void particles_update(Particles* const ps, const Environment* const env, const float dt)
 {
-    // Cache previous positions
+    // Cache previous states
     vec2_copy_n(ps->positions_previous, ps->positions, ps->n_active);
-    vec2_copy_n(ps->velocities_previous, ps->velocities, ps->n_active);
-
-    // Negative force to apply on contact
-    Vec2 negative_gravity;
-    vec2_negate(&negative_gravity, &env->gravity);
 
     // // Divide by particle mass
     // for (int i = 0; i < ps->n_active; ++i)
@@ -353,11 +400,12 @@ void particles_update(Particles* const ps, const Environment* const env, const f
 
 void particles_destroy(Particles* const ps)
 {
+    std::free(ps->left_shift_index_buffer);
     std::free(ps->positions_previous);
     std::free(ps->positions);
-    std::free(ps->velocities_previous);
     std::free(ps->velocities);
     std::free(ps->forces);
+    std::free(ps->alive);
 }
 
 struct PlanetProperties
@@ -444,9 +492,29 @@ void planets_apply_to_particles(const Planets* const planets, const Environment*
             // Squared distance between planet and particle
             const float r_sq = vec2_length_squared(&delta);
 
-            // NOTE: this is no longer consistent with the Newtonian gravitational
-            //       model, but make attractions more stable
-            vec2_scale_compound_add(ps->forces + i, &delta, sign * ((planets->properties + p)->mass / (r_sq + 1e-5f)));
+            // TODO(debug) make this tunable?
+            static const float PLANET_SURFACE_RADIUS = 0.02f;
+            static const float PLANET_SURFACE_RADIUS_SQ = PLANET_SURFACE_RADIUS * PLANET_SURFACE_RADIUS;
+
+            // If a prticle is too close to the planet surface, do not update and mark for death on next update
+            if (r_sq < PLANET_SURFACE_RADIUS_SQ)
+            {
+                // Kill off the particle
+                ps->alive[i] = false;
+
+                // TODO(enhancement) make tunable?
+                static const float PARTICLE_MASS_GAINED = 5e-3f;
+
+                // Increase the mass of the planet
+                (planets->properties + p)->mass += PARTICLE_MASS_GAINED;
+                break;
+            }
+            else
+            {
+                // NOTE: this is no longer consistent with the Newtonian gravitational
+                //       model, but make attractions more stable
+                vec2_scale_compound_add(ps->forces + i, &delta, sign * ((planets->properties + p)->mass / (r_sq + 1e-5f)));
+            }
         }
     }
 }
@@ -1971,6 +2039,9 @@ int main(int, char**)
             ImGui::Text("Application average %.3f ms/frame (%.1f FPS)", 1000.0f / ImGui::GetIO().Framerate, ImGui::GetIO().Framerate);
             ImGui::End();
 #endif // NDEBUG
+
+            // Prune dead particles
+            particles_prune_dead(&particles);
 
             // Don't allow game interation if the debug panel is hovered
             if (suppress_all_in_game_user_input)
