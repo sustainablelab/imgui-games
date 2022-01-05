@@ -2130,6 +2130,9 @@ int main(int, char**)
                     {
                         REPLAY_SFX(SFX_SCORE_POINT);
                         ++score;
+
+                        // Remove particle next iteration
+                        particles.alive[i] = false;
                     }
                     vec2_set_zero(particles.forces + i);
                     vec2_set_zero(particles.velocities + i);
