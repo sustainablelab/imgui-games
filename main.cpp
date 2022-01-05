@@ -719,7 +719,7 @@ void render_pipeline_initialize(RenderPipelineData* const r_data,
             R"FragmentShader(
                 #version 330 core
                 layout(points) in;
-                layout(triangle_strip, max_vertices = 40) out;
+                layout(triangle_strip, max_vertices = 75) out;
 
                 uniform float uAspectRatio;
 
@@ -743,13 +743,20 @@ void render_pipeline_initialize(RenderPipelineData* const r_data,
 
                 void main()
                 {
-                    vec4 vColor = VertProps[0].color;
-                    float t = VertProps[0].t;
-                    float r = VertProps[0].r;
-                    float radius = RADIUS_MIN + RADIUS_DELTA * sin(10 * r * t);
+                    float critical_mass = 3.0;
 
-                    for (int i = 0; i <= 9; i++) {
-                        float curr_ang = TWO_PI / 10.0 * (i+0);
+                    float t = VertProps[0].t;
+                    float r = min(critical_mass, VertProps[0].r);
+                    float radius = RADIUS_MIN + RADIUS_DELTA * sin(0.5 * r * t) + (0.1 * r);
+                    float criticalness = (r * r) / (critical_mass * critical_mass);
+
+                    // Color planet based on how "critical" its mass is
+                    // Creating a planet which is too massive is a losing condition, so the color of this
+                    // planet should indicate something scary
+                    vec4 vColor = VertProps[0].color * (1 - criticalness) + vec4(1, 0, 0, 1) * criticalness;
+
+                    for (int i = 0; i < 25; i++) {
+                        float curr_ang = TWO_PI / 25.0 * (i+0);
                         vec4 curr_offset = vec4(cos(curr_ang) * radius, -sin(curr_ang) * radius, 0.0, 0.0);
                         gl_Position = apply_aspect_ratio(gl_in[0].gl_Position + curr_offset, uAspectRatio);
                         GeomColor = 0.2 * vColor;
@@ -759,7 +766,7 @@ void render_pipeline_initialize(RenderPipelineData* const r_data,
                         GeomColor = vColor;
                         EmitVertex();
 
-                        float next_ang = TWO_PI / 10.0 * (i+1);
+                        float next_ang = TWO_PI / 25.0 * (i+1);
                         vec4 next_offset = vec4(cos(next_ang) * radius, -sin(next_ang) * radius, 0.0, 0.0);
                         gl_Position = apply_aspect_ratio(gl_in[0].gl_Position + next_offset, uAspectRatio);
                         GeomColor = 0.2 * vColor;
