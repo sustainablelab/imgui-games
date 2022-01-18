@@ -4,13 +4,13 @@ point in reading further.
 
 ## ToC
 
-- [Setup to program on Windows](README.md#setup-to-program-on-windows)
-    - [Install build dependencies](README.md#install-build-dependencies)
-- [Get IMGUI](README.md#get-imgui)
-- [Play with the example](README.md#play-with-the-example)
-- [Vim setup to navigate the IMGUI repo](README.md#vim-setup-to-navigate-the-imgui-repo)
-- [Git submodules](README.md#git-submodules)
-- [Use IMGUI in a project](README.md#use-imgui-in-a-project)
+- [Setup to program on Windows](my-notes.md#setup-to-program-on-windows)
+    - [Install build dependencies](my-notes.md#install-build-dependencies)
+- [Get IMGUI](my-notes.md#get-imgui)
+- [Play with the example](my-notes.md#play-with-the-example)
+- [Vim setup to navigate the IMGUI repo](my-notes.md#vim-setup-to-navigate-the-imgui-repo)
+- [Git submodules](my-notes.md#git-submodules)
+- [Use IMGUI in a project](my-notes.md#use-imgui-in-a-project)
 
 # Setup MSYS2 to program on Windows
 
